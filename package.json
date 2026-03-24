@@ -7,13 +7,21 @@
   "engines": {
     "vscode": "^1.85.0"
   },
-  "activationEvents": [],
+  "activationEvents": [
+    "onCommand:wechat-vscode.connect",
+    "onCommand:wechat-vscode.disconnect",
+    "onCommand:wechat-vscode.showPanel",
+    "onView:wechatVscodeSidebar"
+  ],
   "main": "./out/extension.js",
   "scripts": {
-    "vscode:prepublish": "npm run compile",
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "npx @vscode/vsce package"
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild": "npm run esbuild-base -- --sourcemap",
+    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
+    "package": "npm run vscode:prepublish && npx @vscode/vsce package --allow-missing-repository"
   },
   "dependencies": {
     "qrcode": "^1.5.4"
@@ -22,6 +30,7 @@
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/vscode": "^1.85.0",
+    "esbuild": "^0.27.4",
     "typescript": "^5.7.0"
   },
   "categories": [
@@ -35,22 +44,87 @@
     "chat"
   ],
   "contributes": {
+    "configuration": {
+      "title": "WeChat Claude Code",
+      "properties": {
+        "wechat-vscode.claudeCommand": {
+          "type": "string",
+          "default": "claude",
+          "description": "Claude Code CLI 可执行文件路径，默认使用 PATH 中的 claude",
+          "order": 1
+        },
+        "wechat-vscode.environmentVariables": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "环境变量名"
+              },
+              "value": {
+                "type": "string",
+                "description": "环境变量值"
+              }
+            },
+            "required": ["name", "value"]
+          },
+          "default": [],
+          "description": "传递给 Claude CLI 的环境变量，格式与 claudeCode.environmentVariables 相同。配置了哪些就加载哪些，未配置的变量会自动从 claudeCode.environmentVariables 回退读取。",
+          "order": 2
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "wechat-vscode-sidebar",
+          "title": "WeChat",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "wechat-vscode-sidebar": [
+        {
+          "type": "webview",
+          "id": "wechatVscodeSidebar",
+          "name": "WeChat Claude Code"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "wechat-vscode.connect",
-        "title": "WeChat: 连接微信",
-        "category": "WeChat"
+        "title": "连接微信",
+        "category": "WeChat",
+        "icon": "$(plug)"
       },
       {
         "command": "wechat-vscode.disconnect",
-        "title": "WeChat: 断开连接",
-        "category": "WeChat"
+        "title": "断开连接",
+        "category": "WeChat",
+        "icon": "$(debug-disconnect)"
       },
       {
         "command": "wechat-vscode.showPanel",
-        "title": "WeChat: 显示面板",
+        "title": "显示面板",
         "category": "WeChat"
       }
-    ]
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "wechat-vscode.connect",
+          "when": "view == wechatVscodeSidebar",
+          "group": "navigation"
+        },
+        {
+          "command": "wechat-vscode.disconnect",
+          "when": "view == wechatVscodeSidebar",
+          "group": "navigation"
+        }
+      ]
+    }
   }
 }

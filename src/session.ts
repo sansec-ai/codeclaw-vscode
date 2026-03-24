@@ -22,9 +22,10 @@ export interface ChatMessage {
 
 export interface Session {
   sdkSessionId?: string;
+  continuedSession?: boolean;
   workingDirectory: string;
   model?: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'auto';
+  permissionMode?: 'default' | 'acceptEdits' | 'plan';
   state: SessionState;
   chatHistory: ChatMessage[];
   maxHistoryLength?: number;
@@ -79,6 +80,7 @@ export function createSessionStore() {
       model: currentSession?.model,
       permissionMode: currentSession?.permissionMode,
       state: 'idle',
+      continuedSession: false,
       chatHistory: [],
       maxHistoryLength: currentSession?.maxHistoryLength || DEFAULT_MAX_HISTORY,
     };

@@ -1,33 +1,41 @@
 import * as vscode from 'vscode';
 import { initLogger, logger } from './logger';
-import { WeChatPanel } from './panel';
+import { WeChatPanel, WeChatSidebarProvider, DISCONNECTED_STATE, connectedState, processingState, type ViewState } from './panel';
 import { StatusBarManager } from './statusbar';
 import { WeChatApi } from './wechat/api';
-import { loadLatestAccount, type AccountData } from './wechat/accounts';
+import { loadLatestAccount, saveAccount, type AccountData } from './wechat/accounts';
+import { startQrLogin, waitForQrScan } from './wechat/login';
 import { createMonitor, type MonitorCallbacks } from './wechat/monitor';
 import { createSender } from './wechat/send';
 import { extractText, extractFirstImageUrl } from './wechat/media';
 import { createSessionStore, type Session } from './session';
 import { claudeQuery, type QueryOptions } from './claude/provider';
 import { MessageType, type WeixinMessage } from './wechat/types';
+import QRCode from 'qrcode';
 
 const MAX_MESSAGE_LENGTH = 2048;
 
+// ========== Global State ==========
 let panelInstance: WeChatPanel | undefined;
+let sidebarProvider: WeChatSidebarProvider;
 let statusBar: StatusBarManager;
 let monitorInstance: ReturnType<typeof createMonitor> | undefined;
 let outputChannel: vscode.OutputChannel;
 let extContext: vscode.ExtensionContext;
+
+let currentAccount: AccountData | undefined;
+let currentCwd: string | undefined;
+let currentSession: Session | undefined;
+let currentSessionStore: ReturnType<typeof createSessionStore> | undefined;
+
+// ========== Helpers ==========
 
 function splitMessage(text: string, maxLen: number = MAX_MESSAGE_LENGTH): string[] {
   if (text.length <= maxLen) { return [text]; }
   const chunks: string[] = [];
   let remaining = text;
   while (remaining.length > 0) {
-    if (remaining.length <= maxLen) {
-      chunks.push(remaining);
-      break;
-    }
+    if (remaining.length <= maxLen) { chunks.push(remaining); break; }
     let splitIdx = remaining.lastIndexOf('\n', maxLen);
     if (splitIdx < maxLen * 0.3) { splitIdx = maxLen; }
     chunks.push(remaining.slice(0, splitIdx));
@@ -40,17 +48,25 @@ function extractTextFromItems(items: NonNullable<WeixinMessage['item_list']>): s
   return items.map((item) => extractText(item)).filter(Boolean).join('\n');
 }
 
+function getWorkspaceCwd(): string | undefined {
+  const folders = vscode.workspace.workspaceFolders;
+  return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
+}
+
 const HELP_TEXT = [
   '可用命令：',
   '',
   '  /help             显示帮助',
-  '  /clear            清除当前会话',
+  '  /new              开启新会话',
   '  /cwd <路径>       切换工作目录',
   '  /model <名称>     切换 Claude 模型',
+  '  /mode <模式>      切换权限模式 (default/acceptEdits/plan)',
   '  /status           查看当前会话状态',
   '',
-  '直接输入文字即可与 Claude Code 对话',
+  '直接输入文字即可与 Claude Code 对话（连续会话）',
 ].join('\n');
+
+// ========== Activate / Deactivate ==========
 
 export async function activate(ctx: vscode.ExtensionContext) {
   extContext = ctx;
@@ -61,24 +77,70 @@ export async function activate(ctx: vscode.ExtensionContext) {
   statusBar = new StatusBarManager();
   ctx.subscriptions.push(statusBar);
 
+  sidebarProvider = new WeChatSidebarProvider(
+    ctx.extensionUri,
+    () => handleConnect(),
+    () => handleDisconnect(),
+    () => handleRebind(),
+  );
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('wechat-vscode.connect', () => startConnect()),
-    vscode.commands.registerCommand('wechat-vscode.disconnect', () => doDisconnect()),
+    vscode.window.registerWebviewViewProvider(WeChatSidebarProvider.viewType, sidebarProvider),
+  );
+
+  ctx.subscriptions.push(
+    vscode.commands.registerCommand('wechat-vscode.connect', () => handleConnect()),
+    vscode.commands.registerCommand('wechat-vscode.disconnect', () => handleDisconnect()),
     vscode.commands.registerCommand('wechat-vscode.showPanel', () => showOrCreatePanel()),
   );
 
   logger.info('WeChat VSCode extension activated');
 
-  // Auto-reconnect if account exists
+  // Auto-reconnect if account already bound
   const account = loadLatestAccount();
   if (account) {
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    const cwd = workspaceFolders && workspaceFolders.length > 0
-      ? workspaceFolders[0].uri.fsPath : undefined;
+    const cwd = getWorkspaceCwd();
     if (cwd) {
+      // Start daemon silently, update UI to connected state
       startDaemon(account, cwd);
+      logger.info('Auto-reconnected on activation', { accountId: account.accountId });
     }
   }
+}
+
+export function deactivate() {
+  if (monitorInstance) {
+    monitorInstance.stop();
+    monitorInstance = undefined;
+  }
+  if (outputChannel) { outputChannel.dispose(); }
+  logger.info('Extension deactivated');
+}
+
+// ========== UI State Management ==========
+
+function setUiState(state: ViewState): void {
+  sidebarProvider.setViewState(state);
+  try { (panelInstance as any)?.setState?.(state); } catch {}
+}
+
+function updateStatus(status: string): void {
+  sidebarProvider.updateStatus(status);
+  try { (panelInstance as any)?.updateStatus?.(status); } catch {}
+}
+
+function showQrCode(dataUri: string): void {
+  sidebarProvider.showQrCode(dataUri);
+  try { (panelInstance as any)?.showQrCode?.(dataUri); } catch {}
+}
+
+function hideQrCode(): void {
+  sidebarProvider.hideQrCode();
+  try { (panelInstance as any)?.hideQrCode?.(); } catch {}
+}
+
+function showConnectButton(): void {
+  sidebarProvider.showConnectButton();
+  try { (panelInstance as any)?.showConnectButton?.(); } catch {}
 }
 
 function showOrCreatePanel(): void {
@@ -86,69 +148,117 @@ function showOrCreatePanel(): void {
     panelInstance.reveal();
     return;
   }
-  panelInstance = WeChatPanel.createOrShow(extContext.extensionUri);
-  panelInstance.onDidDispose(() => {
-    panelInstance = undefined;
-  });
+  const state = currentAccount
+    ? connectedState(currentCwd || '无工作目录')
+    : DISCONNECTED_STATE;
+  panelInstance = WeChatPanel.createOrShow(extContext.extensionUri, state);
+  panelInstance.onDidDispose(() => { panelInstance = undefined; });
   extContext.subscriptions.push(panelInstance);
 }
 
-async function startConnect(): Promise<void> {
-  showOrCreatePanel();
-  if (!panelInstance) { return; }
+// ========== Connect / Disconnect / Rebind ==========
 
+/**
+ * Connect: if already bound, start daemon directly; otherwise show QR.
+ */
+async function handleConnect(): Promise<void> {
+  const existingAccount = loadLatestAccount();
+  if (existingAccount) {
+    // Already bound — start daemon directly
+    const cwd = getWorkspaceCwd();
+    if (!cwd) {
+      vscode.window.showWarningMessage('请先在 VSCode 中打开一个项目文件夹');
+      return;
+    }
+    if (currentAccount && monitorInstance) {
+      // Already running
+      vscode.window.showInformationMessage('微信已连接，无需重复连接。');
+      return;
+    }
+    startDaemon(existingAccount, cwd);
+    vscode.window.showInformationMessage('微信已连接！');
+    return;
+  }
+
+  // Not bound — show QR code
+  await doQrBind();
+}
+
+/** Disconnect but keep account data for next quick-connect. */
+function handleDisconnect(): void {
+  stopDaemon();
+  setUiState(DISCONNECTED_STATE);
+  statusBar.setStatus('disconnected');
+  vscode.window.showInformationMessage('微信已断开连接。下次点击"连接微信"可直接恢复。');
+  logger.info('Disconnected by user');
+}
+
+/** Disconnect and rebind with new QR code. */
+async function handleRebind(): Promise<void> {
+  stopDaemon();
+  setUiState(DISCONNECTED_STATE);
+  await doQrBind();
+}
+
+async function doQrBind(): Promise<void> {
   statusBar.setStatus('connecting');
-  panelInstance.updateStatus('正在生成二维码...');
+  updateStatus('正在生成二维码，请稍候...');
 
   try {
-    const { startQrLogin, waitForQrScan } = await import('./wechat/login');
     const { qrcodeUrl, qrcodeId } = await startQrLogin();
-
-    const QRCode = await import('qrcode');
     const dataUri = await QRCode.toDataURL(qrcodeUrl, { width: 300, margin: 2 });
 
-    panelInstance.showQrCode(dataUri);
-    panelInstance.updateStatus('请用微信扫描二维码绑定...');
+    showQrCode(dataUri);
     statusBar.setStatus('scanning');
 
     const abortController = new AbortController();
-    panelInstance.onDidDispose(() => { abortController.abort(); });
 
     const account = await waitForQrScan(qrcodeId, abortController.signal);
 
-    panelInstance.updateStatus('✅ 绑定成功！正在启动消息监听...');
-    statusBar.setStatus('connected');
+    // Save account for future quick-connect
+    saveAccount(account);
 
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    if (!workspaceFolders || workspaceFolders.length === 0) {
-      panelInstance.updateStatus('⚠️ 没有打开的工作区，请先打开一个项目文件夹');
+    hideQrCode();
+    const cwd = getWorkspaceCwd();
+    if (!cwd) {
+      updateStatus('⚠️ 请先打开一个项目文件夹');
       statusBar.setStatus('error');
       return;
     }
 
-    const cwd = workspaceFolders[0].uri.fsPath;
-    panelInstance.updateStatus('✅ 已连接！工作目录: ' + cwd);
-    panelInstance.hideQrCode();
     startDaemon(account, cwd);
-
-    vscode.window.showInformationMessage('微信已连接成功！可以在微信中发送消息来操作项目。');
+    vscode.window.showInformationMessage('微信绑定成功！');
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
-    logger.error('Connect failed', { error: msg });
+    logger.error('QR bind failed', { error: msg });
 
     if (msg.includes('expired')) {
-      panelInstance.updateStatus('⚠️ 二维码已过期，请重新连接');
+      setUiState(DISCONNECTED_STATE);
       statusBar.setStatus('disconnected');
-      vscode.window.showWarningMessage('二维码已过期，请重新点击连接。');
+      vscode.window.showWarningMessage('二维码已过期，请重试。');
     } else if (msg.includes('cancelled')) {
+      setUiState(DISCONNECTED_STATE);
       statusBar.setStatus('disconnected');
     } else {
-      panelInstance.updateStatus('❌ 连接失败: ' + msg);
+      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error' });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage('微信连接失败: ' + msg);
+      vscode.window.showErrorMessage('微信绑定失败: ' + msg);
     }
   }
 }
+
+function stopDaemon(): void {
+  if (monitorInstance) {
+    monitorInstance.stop();
+    monitorInstance = undefined;
+  }
+  currentAccount = undefined;
+  currentCwd = undefined;
+  currentSession = undefined;
+  currentSessionStore = undefined;
+}
+
+// ========== Daemon ==========
 
 function startDaemon(account: AccountData, cwd: string): void {
   if (monitorInstance) {
@@ -165,40 +275,52 @@ function startDaemon(account: AccountData, cwd: string): void {
     sessionStore.save(account.accountId, session);
   }
 
+  currentAccount = account;
+  currentCwd = cwd;
+  currentSession = session;
+  currentSessionStore = sessionStore;
+
   const sender = createSender(api, account.accountId);
   const sharedCtx = { lastContextToken: '' };
 
   const callbacks: MonitorCallbacks = {
     onMessage: async (msg: WeixinMessage) => {
-      await handleMessage(msg, account, session, sessionStore, sender, cwd, sharedCtx);
+      await handleMessage(msg, sender, sharedCtx);
     },
     onSessionExpired: () => {
       logger.warn('Session expired');
+      setUiState({ ...DISCONNECTED_STATE, status: '⚠️ 微信会话已过期，请重新绑定', dotClass: 'error' });
       statusBar.setStatus('error');
-      panelInstance?.updateStatus('⚠️ 微信会话已过期，请重新连接');
       vscode.window.showWarningMessage('微信会话已过期，请重新扫码绑定。');
     },
   };
 
   monitorInstance = createMonitor(api, callbacks);
   statusBar.setStatus('connected');
+  setUiState(connectedState(cwd));
   logger.info('Daemon started', { accountId: account.accountId, cwd });
 
   monitorInstance.run().catch((err) => {
     logger.error('Monitor crashed', { error: err instanceof Error ? err.message : String(err) });
+    setUiState({ ...DISCONNECTED_STATE, status: '❌ 连接断开', dotClass: 'error' });
     statusBar.setStatus('error');
   });
 }
 
+// ========== Message Handler ==========
+
 async function handleMessage(
   msg: WeixinMessage,
-  account: AccountData,
-  session: Session,
-  sessionStore: ReturnType<typeof createSessionStore>,
   sender: ReturnType<typeof createSender>,
-  cwd: string,
   sharedCtx: { lastContextToken: string },
 ): Promise<void> {
+  if (!currentAccount || !currentSession || !currentSessionStore) { return; }
+
+  const account = currentAccount;
+  const session = currentSession;
+  const sessionStore = currentSessionStore;
+  const cwd = currentCwd || session.workingDirectory;
+
   if (msg.message_type !== MessageType.USER) { return; }
   if (!msg.from_user_id || !msg.item_list) { return; }
 
@@ -211,12 +333,10 @@ async function handleMessage(
 
   // Concurrency guard
   if (session.state === 'processing') {
-    if (userText.startsWith('/clear')) {
-      await sender.sendText(fromUserId, contextToken, '⏳ 正在处理上一条消息，请稍后再清除会话');
-    } else if (!userText.startsWith('/')) {
+    if (!userText.startsWith('/status') && !userText.startsWith('/help')) {
       await sender.sendText(fromUserId, contextToken, '⏳ 正在处理上一条消息，请稍后...');
+      return;
     }
-    if (!userText.startsWith('/status') && !userText.startsWith('/help')) { return; }
   }
 
   // Slash commands
@@ -230,17 +350,18 @@ async function handleMessage(
       case 'help':
         await sender.sendText(fromUserId, contextToken, HELP_TEXT);
         return;
-      case 'clear':
-        session.state = 'idle';
-        sessionStore.clear(account.accountId, session);
-        Object.assign(session, sessionStore.load(account.accountId));
-        await sender.sendText(fromUserId, contextToken, '✅ 会话已清除。');
+      case 'new': {
+        const newSession = sessionStore.clear(account.accountId, session);
+        Object.assign(session, newSession);
+        await sender.sendText(fromUserId, contextToken, '✅ 已开启新会话。');
         return;
+      }
       case 'cwd':
         if (!args) {
-          await sender.sendText(fromUserId, contextToken, '当前工作目录: ' + session.workingDirectory + '\n用法: /cwd <路径>');
+          await sender.sendText(fromUserId, contextToken, '当前工作目录: ' + (session.workingDirectory || cwd) + '\n用法: /cwd <路径>');
         } else {
           session.workingDirectory = args;
+          currentCwd = args;
           sessionStore.save(account.accountId, session);
           await sender.sendText(fromUserId, contextToken, '✅ 工作目录已切换为: ' + args);
         }
@@ -254,16 +375,38 @@ async function handleMessage(
           await sender.sendText(fromUserId, contextToken, '✅ 模型已切换为: ' + args);
         }
         return;
+      case 'mode':
+        if (!args) {
+          await sender.sendText(fromUserId, contextToken, [
+            '当前权限模式: ' + (session.permissionMode || 'default'),
+            '', '可用模式:',
+            '  default      默认（逐次确认）',
+            '  acceptEdits  自动接受文件编辑',
+            '  plan         仅规划不执行',
+            '', '用法: /mode <模式名>',
+          ].join('\n'));
+        } else {
+          const validModes = ['default', 'acceptEdits', 'plan'];
+          if (!validModes.includes(args)) {
+            await sender.sendText(fromUserId, contextToken, '❌ 无效模式: ' + args + '\n可用: default, acceptEdits, plan');
+          } else {
+            session.permissionMode = args as Session['permissionMode'];
+            sessionStore.save(account.accountId, session);
+            await sender.sendText(fromUserId, contextToken, '✅ 权限模式已切换为: ' + args);
+          }
+        }
+        return;
       case 'status': {
         const mode = session.permissionMode ?? 'default';
-        const statusText = [
+        const modeDesc: Record<string, string> = { 'default': '默认（逐次确认）', 'acceptEdits': '自动接受编辑', 'plan': '仅规划' };
+        await sender.sendText(fromUserId, contextToken, [
           '📊 会话状态', '',
-          '工作目录: ' + session.workingDirectory,
-          '模型: ' + (session.model ?? '默认'),
-          '权限模式: ' + mode,
-          '状态: ' + session.state,
-        ].join('\n');
-        await sender.sendText(fromUserId, contextToken, statusText);
+          '工作目录: ' + (session.workingDirectory || cwd),
+          '模型: ' + (session.model || '默认'),
+          '权限模式: ' + mode + '（' + (modeDesc[mode] || mode) + '）',
+          '会话状态: ' + session.state,
+          '连续会话: ' + (session.continuedSession ? '是' : '否'),
+        ].join('\n'));
         return;
       }
       default:
@@ -280,13 +423,13 @@ async function handleMessage(
   session.state = 'processing';
   sessionStore.save(account.accountId, session);
   statusBar.setStatus('processing');
-  panelInstance?.updateStatus('⏳ 正在处理消息...');
+  setUiState(processingState());
 
   try {
     const queryOptions: QueryOptions = {
       prompt: userText || '请分析这张图片',
       cwd: session.workingDirectory || cwd,
-      resume: session.sdkSessionId,
+      continueSession: session.continuedSession,
       model: session.model,
       permissionMode: session.permissionMode,
     };
@@ -295,7 +438,7 @@ async function handleMessage(
 
     if (result.error) {
       logger.error('Claude query error', { error: result.error });
-      await sender.sendText(fromUserId, contextToken, '⚠️ Claude 处理请求时出错，请稍后重试。');
+      await sender.sendText(fromUserId, contextToken, '⚠️ Claude 处理请求时出错:\n' + result.error);
     } else if (result.text) {
       const chunks = splitMessage(result.text);
       for (const chunk of chunks) {
@@ -305,11 +448,11 @@ async function handleMessage(
       await sender.sendText(fromUserId, contextToken, 'ℹ️ Claude 无返回内容');
     }
 
-    session.sdkSessionId = result.sessionId || undefined;
+    session.continuedSession = true;
     session.state = 'idle';
     sessionStore.save(account.accountId, session);
     statusBar.setStatus('connected');
-    panelInstance?.updateStatus('✅ 已连接，等待消息...');
+    setUiState(connectedState(currentCwd || cwd));
   } catch (err) {
     const errorMsg = err instanceof Error ? err.message : String(err);
     logger.error('Error in handleMessage', { error: errorMsg });
@@ -317,30 +460,6 @@ async function handleMessage(
     session.state = 'idle';
     sessionStore.save(account.accountId, session);
     statusBar.setStatus('connected');
-    panelInstance?.updateStatus('✅ 已连接，等待消息...');
+    setUiState(connectedState(currentCwd || cwd));
   }
-}
-
-function doDisconnect(): void {
-  if (monitorInstance) {
-    monitorInstance.stop();
-    monitorInstance = undefined;
-  }
-  statusBar.setStatus('disconnected');
-  panelInstance?.updateStatus('已断开连接');
-  panelInstance?.hideQrCode();
-  panelInstance?.showConnectButton();
-  vscode.window.showInformationMessage('微信已断开连接。');
-  logger.info('Disconnected by user');
-}
-
-export function deactivate() {
-  if (monitorInstance) {
-    monitorInstance.stop();
-    monitorInstance = undefined;
-  }
-  if (outputChannel) {
-    outputChannel.dispose();
-  }
-  logger.info('Extension deactivated');
 }

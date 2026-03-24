@@ -1,0 +1,156 @@
+#!/bin/bash
+# ============================================================
+#  WeChat VSCode 扩展 — 一键打包脚本
+#  用法: chmod +x build.sh && ./build.sh
+# ============================================================
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# 颜色定义
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info()  { echo -e "${CYAN}[INFO]${NC}  $1"; }
+log_ok()    { echo -e "${GREEN}[OK]${NC}    $1"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# ============================================================
+# 1. 环境检查
+# ============================================================
+log_info "检查环境..."
+
+# Node.js
+if ! command -v node &> /dev/null; then
+    log_error "未找到 Node.js，请先安装 (>= 18)"
+    exit 1
+fi
+NODE_VERSION=$(node -v)
+log_ok "Node.js ${NODE_VERSION}"
+
+# npm
+if ! command -v npm &> /dev/null; then
+    log_error "未找到 npm"
+    exit 1
+fi
+log_ok "npm $(npm -v)"
+
+# ============================================================
+# 2. 清理旧产物
+# ============================================================
+log_info "清理旧产物..."
+rm -rf out
+rm -f wechat-vscode-*.vsix
+log_ok "已清理 out/ 和 *.vsix"
+
+# ============================================================
+# 3. 安装依赖
+# ============================================================
+log_info "安装依赖..."
+npm install 2>&1 | tail -1
+log_ok "依赖安装完成"
+
+# ============================================================
+# 4. 检查关键文件
+# ============================================================
+log_info "检查关键文件..."
+REQUIRED_FILES=(
+    "src/extension.ts"
+    "src/panel.ts"
+    "src/statusbar.ts"
+    "package.json"
+    "tsconfig.json"
+    "icon.svg"
+)
+MISSING=0
+for f in "${REQUIRED_FILES[@]}"; do
+    if [ ! -f "$f" ]; then
+        log_error "缺少文件: $f"
+        MISSING=$((MISSING + 1))
+    fi
+done
+if [ $MISSING -gt 0 ]; then
+    log_error "缺少 $MISSING 个必要文件，请检查项目完整性"
+    exit 1
+fi
+log_ok "关键文件检查通过"
+
+# ============================================================
+# 5. TypeScript 类型检查（编译但不输出，仅检查类型）
+# ============================================================
+log_info "TypeScript 类型检查..."
+if npx tsc --noEmit 2>&1; then
+    log_ok "类型检查通过"
+else
+    log_warn "类型检查有警告/错误，但不影响 esbuild 打包"
+fi
+
+# ============================================================
+# 6. esbuild 打包（bundle 所有依赖为单文件）
+# ============================================================
+log_info "esbuild 打包..."
+npx esbuild ./src/extension.ts \
+    --bundle \
+    --outfile=out/extension.js \
+    --external:vscode \
+    --format=cjs \
+    --platform=node \
+    --minify \
+    --sourcemap
+
+if [ ! -f out/extension.js ]; then
+    log_error "esbuild 打包失败，未生成 out/extension.js"
+    exit 1
+fi
+FILE_SIZE=$(du -h out/extension.js | cut -f1)
+log_ok "打包完成: out/extension.js (${FILE_SIZE})"
+
+# ============================================================
+# 7. 检查 qrcode 模块是否已打包进去
+# ============================================================
+log_info "验证依赖打包..."
+if grep -q "QRCode" out/extension.js; then
+    log_ok "qrcode 模块已打包"
+else
+    log_warn "qrcode 模块可能未正确打包"
+fi
+
+# ============================================================
+# 8. 生成 VSIX
+# ============================================================
+log_info "生成 VSIX..."
+npx @vscode/vsce package --allow-missing-repository 2>&1 | grep -E "(DONE|ERROR|WARNING|Files included)"
+
+VSIX_FILE=$(ls wechat-vscode-*.vsix 2>/dev/null | head -1)
+if [ -z "$VSIX_FILE" ]; then
+    log_error "VSIX 打包失败"
+    exit 1
+fi
+
+VSIX_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
+log_ok "VSIX 生成: ${VSIX_FILE} (${VSIX_SIZE})"
+
+# ============================================================
+# 9. 完成
+# ============================================================
+echo ""
+echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}  ✅ 打包成功！${NC}"
+echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
+echo ""
+echo "  产物: ${VSIX_FILE}"
+echo "  大小: ${VSIX_SIZE}"
+echo ""
+echo -e "  ${CYAN}安装方式:${NC}"
+echo "    code --install-extension ${VSIX_FILE}"
+echo "    或 VSCode 中 Ctrl+Shift+P → Extensions: Install from VSIX..."
+echo ""
+echo -e "  ${CYAN}卸载方式:${NC}"
+echo "    code --uninstall-extension wechat-vscode.wechat-vscode"
+echo ""
