@@ -1,4 +1,4 @@
-# WeChat Claude Code — VSCode 扩展
+# WeChat Claude Code：口袋里的 AI 编程助手
 
 > 通过微信 ClawBot 远程控制 VSCode 项目中的 Claude Code
 
@@ -25,6 +25,8 @@
 | 💬 **微信操控项目** | 微信中发送文字/图片，Claude Code 将处理请求并操作当前工作目录 |
 | 🔁 **持续会话** | 连续对话保持上下文，Claude 记得之前的操作，发送 `/new` 开启新会话 |
 | ⚡ **流式输出** | 工具调用、中间过程实时推送到微信（可关闭） |
+| 📋 **Checklist 追踪** | Claude 使用 TodoWrite 时，自动推送任务进度到微信 |
+| 🛡️ **权限拒绝检测** | 自动检测工具权限拒绝，提示用户切换 `/mode` |
 | 📊 **状态栏** | VSCode 底部状态栏实时显示连接状态（未连接/连接中/已连接/处理中/错误） |
 | 🗂️ **侧边栏面板** | 左侧 Activity Bar 微信图标，点击展开面板，显示二维码、状态和操作日志 |
 | 📝 **斜杠命令** | 支持会话管理命令：`/help`、`/new`、`/cwd`、`/model`、`/mode`、`/status` |
@@ -129,7 +131,8 @@ npm install
 | `/new` | 开启新会话（清除上下文） | `/new` |
 | `/cwd <路径>` | 切换工作目录 | `/cwd /home/user/project` |
 | `/model <名称>` | 切换 Claude 模型 | `/model claude-sonnet-4-6` |
-| `/mode <模式>` | 切换权限模式 | `/mode acceptEdits` |
+| `/mode <模式>` | 切换权限模式（名称或数字） | `/mode 2` |
+| `/stream` | 切换流式/非流式输出 | `/stream` |
 | `/status` | 查看当前会话状态 | `/status` |
 
 直接输入文字即可与 Claude Code 对话，Claude 会操作当前 VSCode 项目目录。
@@ -154,27 +157,43 @@ npm install
 
 ## ⚡ 流式输出
 
-当 `wechat-vscode.streaming` 开启时（默认），Claude Code 的中间过程会实时推送到微信：
+默认开启流式输出时，Claude Code 的中间工具调用记录在 VSCode 输出通道中（`查看 → 输出 → WeChat Claude Code`），只有**最终结果**作为一条消息发送到微信。
+
+### Checklist 追踪
+
+当 Claude 使用 `TodoWrite` 工具时，插件自动检测 checklist 变化并推送进度到微信：
 
 ```
-微信消息流示例（streaming=true）：
+📋 任务进度 60%
+[██████░░░░] 3/5
 
-你：帮我创建一个 hello world
-
-🔧 Write
-  {"path":"hello.js","content":"console.log('Hello World')"}
-
-✅ 文件创建成功
-
-已为你创建 hello.js 文件，内容如下：
-  console.log('Hello World')
-
-运行方式：node hello.js
+✅ 创建 test.txt 文件
+✅ 读取 config.json
+🔄 列出目录内容
+⬜ 运行测试套件
+⬜ 清理临时文件
 ```
 
-工具调用会以 🔧 前缀显示，工具结果以 ✅/❌ 前缀显示，文本回复会自动去除 Markdown 格式转为微信友好的纯文本。
+- 更新**自动批量合并**，不超过微信每轮 ~10 条消息限制
+- 最多发送 **9 条进度更新**，始终**预留第 10 条**给最终结果
+- 全部完成时（100%）一定会推送最终状态
+- 支持任何使用 TodoWrite 工具的模型
 
-关闭流式输出后，微信只收到 Claude 的最终回复文本。
+### 权限拒绝检测
+
+当 Claude 请求的工具权限被拒绝时（如 `default` 或 `plan` 模式），插件会在最终结果后自动追加提示：
+
+```
+⚠️ 部分操作因权限限制未执行
+
+被拒绝的工具: Bash, Write
+
+当前权限模式: default
+
+如需自动授权，请发送:
+  /mode 2  (自动接受文件编辑)
+  /mode 3  (跳过所有权限检查)
+```
 
 ## 🏗️ 工作原理
 
@@ -276,18 +295,30 @@ npm run watch          # 监听模式编译
 npm run compile        # 编译 TypeScript
 npm run esbuild        # esbuild 开发模式打包（带 sourcemap）
 npm run watch          # 监听模式编译
+npm run test:fast      # 只跑 mock 单元测试（快速）
+npm test               # 跑全部测试（含真实 SDK 集成测试）
 npm run package        # 生成 .vsix
 ./build.sh             # 一键打包（推荐，含完整检查流程）
+./build.sh --with-stats # 打包并启用日志统计
 ```
 
 ## 📦 打包部署
+
+### 标准打包（不含日志统计）
 
 ```bash
 ./build.sh
 # 生成 wechat-claude-vscode-0.1.77.vsix
 ```
 
-脚本自动执行：环境检查 → 清理旧产物 → 安装依赖 → 文件检查 → TypeScript 类型检查 → esbuild 打包 → 复制 Claude Code CLI → 验证 → 生成 VSIX。
+### 打包并启用日志统计
+
+```bash
+./build.sh --with-stats
+# 从 .env 读取 STATS_URL 并烘焙到插件中
+```
+
+脚本自动执行：环境检查 → 清理旧产物 → 安装依赖 → 文件检查 → TypeScript 类型检查 → 生成 stats 配置 → esbuild 打包 → 复制 Claude Code CLI → 验证 → 生成 VSIX。
 
 安装：
 ```bash

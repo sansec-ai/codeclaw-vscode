@@ -1,3 +1,18 @@
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M8.691 2.188C3.891 2.188 0 5.476 0 9.53c0 2.212 1.17 4.203 3.002 5.55a.59.59 0 0 1 .213.665l-.39 1.48c-.019.07-.048.141-.048.213 0 .163.13.295.29.295a.326.326 0 0 0 .167-.054l1.903-1.114a.864.864 0 0 1 .717-.098 10.16 10.16 0 0 0 2.837.403c.276 0 .543-.027.811-.05-.857-2.578.157-4.972 1.932-6.446 1.703-1.415 3.882-1.98 5.853-1.838-.576-3.583-4.196-6.348-8.596-6.348zM5.785 5.991c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178A1.17 1.17 0 0 1 4.623 7.17c0-.651.52-1.18 1.162-1.18zm5.813 0c.642 0 1.162.529 1.162 1.18a1.17 1.17 0 0 1-1.162 1.178 1.17 1.17 0 0 1-1.162-1.178c0-.651.52-1.18 1.162-1.18zm3.578 4.843c-1.626-.074-3.156.387-4.296 1.4-1.362 1.2-2.064 3.05-1.593 5.09.46 1.996 2.06 3.703 4.188 4.486a8.093 8.093 0 0 0 2.277.322c.683 0 1.35-.088 1.98-.254a.622.622 0 0 1 .525.07l1.403.822a.236.236 0 0 0 .124.04.217.217 0 0 0 .214-.218c0-.053-.02-.106-.035-.157l-.288-1.093a.434.434 0 0 1 .157-.49C21.863 19.476 22.8 17.82 22.8 16.011c0-3.252-3.062-5.177-7.624-5.177zM14.972 13.12c.48 0 .869.395.869.883a.876.876 0 0 1-.869.882.876.876 0 0 1-.869-.882c0-.488.39-.883.87-.883zm4.346 0c.48 0 .869.395.869.883a.876.876 0 0 1-.869.882.876.876 0 0 1-.869-.882c0-.488.39-.883.87-.883z" fill="currentColor"/>
+  <!-- WeChat chat bubble (left) with tail -->
+  <path d="M8 2.5C4.4 2.5 1.5 5 1.5 8c0 1.7.9 3.2 2.2 4.1l-.4 1.6c0 .2.2.3.3.3l1.5-.9c.6.2 1.2.3 1.9.3C10.1 13.4 13 11 13 8S11.6 2.5 8 2.5z"
+        stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- 3 chat dots -->
+  <circle cx="5" cy="8" r="0.75" fill="currentColor"/>
+  <circle cx="7.5" cy="8" r="0.75" fill="currentColor"/>
+  <circle cx="10" cy="8" r="0.75" fill="currentColor"/>
+
+  <!-- Terminal window (right-top, overlapping bubble) -->
+  <rect x="10.5" y="4.5" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5" fill="none"/>
+  <!-- Terminal >_ prompt -->
+  <path d="M12.5 9.5l1.2 1.5-1.2 1.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <line x1="15" y1="12.5" x2="17.5" y2="12.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- Cursor blink line -->
+  <line x1="12.5" y1="15" x2="20" y2="15" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" opacity="0.4"/>
+  <line x1="12.5" y1="16.5" x2="18" y2="16.5" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" opacity="0.3"/>
 </svg>

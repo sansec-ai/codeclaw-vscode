@@ -28,6 +28,8 @@ export interface IntermediateMessage {
   displayText: string;
   /** Raw content blocks (for logging / advanced use) */
   blocks?: AssistantContentBlock[];
+  /** Raw SDK message — for checklist tracking and other advanced use */
+  rawMessage?: SDKAssistantMessage;
 }
 
 export interface QueryOptions {
@@ -365,7 +367,7 @@ export async function claudeQuery(options: QueryOptions): Promise<QueryResult> {
               const displayText = formatBlocksForWeChat(blocks);
               if (displayText) {
                 try {
-                  await onIntermediate({ type: 'assistant', displayText, blocks });
+                  await onIntermediate({ type: 'assistant', displayText, blocks, rawMessage: lastAssistantMsg });
                 } catch (cbErr) {
                   // Don't let callback failure break the query loop
                   logger.error('onIntermediate callback failed', {

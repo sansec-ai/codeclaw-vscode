@@ -4,6 +4,7 @@
   "description": "Control Claude Code in VSCode via WeChat ClawBot — chat with Claude from your phone",
   "version": "0.1.77",
   "publisher": "SansecAiLab",
+  "icon": "icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/SansecAiLab/wechat-claude-vscode"

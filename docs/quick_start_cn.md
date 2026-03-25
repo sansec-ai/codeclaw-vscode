@@ -1,6 +1,6 @@
 # 快速开始指南
 
-5 分钟内完成 WeChat Claude Code 的安装和配置。
+通过微信在你的VSCode项目内执行 Claude Code
 
 ## 前置条件
 
@@ -25,16 +25,6 @@ code --install-extension wechat-claude-vscode-0.1.77.vsix
 ### 方式二：从 VSCode Marketplace 安装
 
 打开扩展视图（`Ctrl+Shift+X`），搜索 **"WeChat Claude Code"**，点击 **Install**。
-
-### 方式三：从源码构建
-
-```bash
-git clone https://github.com/your-username/wechat-claude-vscode.git
-cd wechat-claude-vscode
-npm install
-./build.sh
-code --install-extension wechat-claude-vscode-0.1.77.vsix
-```
 
 ## 第二步：配置 API 凭证
 
@@ -75,7 +65,7 @@ code --install-extension wechat-claude-vscode-0.1.77.vsix
 
 ## 第四步：连接微信
 
-1. 点击 VSCode 左侧 Activity Bar 的 **微信图标**（📱）
+1. 点击 VSCode 左侧 Activity Bar 的 **微信图标**
 2. 在面板中点击 **"连接微信"** 按钮
 3. 弹出二维码 — 用 **手机微信** 扫描
 4. 等待 "✅ 绑定成功" 提示
@@ -101,6 +91,8 @@ Claude Code 会分析你的项目并直接在微信中回复。
 | `/cwd /path/to/dir` | 切换 Claude 的工作目录 |
 | `/model claude-sonnet-4-6` | 切换 Claude 模型 |
 | `/mode 2` | 切换到自动接受文件编辑模式 |
+| `/mode 3` | 跳过所有权限检查 |
+| `/stream` | 切换流式/非流式输出 |
 | `/status` | 查看当前会话信息 |
 
 **权限模式快捷键：** `0` = 仅规划，`1` = 默认逐次确认，`2` = 自动接受编辑，`3+` = 跳过所有权限
@@ -110,15 +102,22 @@ Claude Code 会分析你的项目并直接在微信中回复。
 - **长回复**：Claude 的完整回复会作为一条消息发送（不拆分）。较大的输出可能需要稍等片刻。
 - **图片识别**：直接从微信发送截图，Claude 可以分析图片内容。
 - **流式输出**：默认开启，Claude 的中间工具调用记录在 VSCode 输出通道中（`查看 → 输出 → WeChat Claude Code`），只有最终结果发送到微信。
+- **Checklist 追踪**：Claude 使用 TodoWrite 时，任务进度会自动推送到微信，显示可视化的进度条。
+- **权限拒绝**：如果 Claude 说完成了但实际工具被拒绝，你会看到 `/mode` 切换提示。用 `/mode 3` 跳过所有权限。
 - **自动重连**：VSCode 重启后，插件会自动使用已保存的凭证重新连接。
 - **会话过期**：如果微信会话过期，点击侧边栏的 "重新绑定" 扫描新的二维码即可。
 
 ## 常见问题
 
-| 问题 | 解决方案 |
-|------|----------|
-| 二维码过期 | 点击 "重新绑定" 生成新的二维码 |
-| 微信没有收到回复 | 查看 VSCode 输出通道是否有错误；检查 API 凭证是否正确 |
-| "Claude 无返回内容" | 尝试发送 `/new` 开启新会话 |
-| API 连接被拒绝 | 确认 `ANTHROPIC_BASE_URL` 在你的网络环境中可访问 |
-| Claude 不断请求权限确认 | 使用 `/mode 2` 自动接受文件编辑，或 `/mode 3` 跳过所有权限 |
+### Q: 微信 ClawBot 只能绑定一个 VSCode 项目，如果要换项目怎么办？
+
+A: 是的，每个 ClawBot 实例只能绑定一个 VSCode 项目。如果您想切换到另一个项目，需要先解除当前绑定，然后重新扫描新项目的二维码进行绑定。
+
+具体操作步骤：
+1. 在 VSCode 的微信面板中点击 **"解绑微信"** 按钮
+2. 底部状态栏应显示 `WeChat: ❌ 未连接`
+3. 打开新项目文件夹
+4. 点击 VSCode 左侧 Activity Bar 的 **微信图标**（📱）
+5. 在面板中点击 **"连接微信"** 按钮
+6. 用手机微信扫描新弹出的二维码
+7. 等待 "✅ 绑定成功" 提示

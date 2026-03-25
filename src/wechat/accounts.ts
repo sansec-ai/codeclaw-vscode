@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { readdirSync, statSync } from 'node:fs';
+import { readdirSync, statSync, unlinkSync, existsSync } from 'node:fs';
 import { loadJson, saveJson } from '../store';
 import { logger } from '../logger';
 
@@ -13,9 +13,11 @@ export interface AccountData {
   baseUrl: string;
   userId: string;
   createdAt: string;
+  /** The VSCode workspace directory that was bound to this account */
+  boundCwd?: string;
 }
 
-const ACCOUNTS_DIR = join(homedir(), '.wechat-claude-code', 'accounts');
+const ACCOUNTS_DIR = join(homedir(), '.wechat-claude-vscode', 'accounts');
 
 function validateAccountId(accountId: string): void {
   if (!/^[a-zA-Z0-9_.@=-]+$/.test(accountId)) {
@@ -63,5 +65,18 @@ export function loadLatestAccount(): AccountData | null {
     return loadAccount(accountId);
   } catch {
     return null;
+  }
+}
+
+export function deleteAccount(accountId: string): boolean {
+  const filePath = accountPath(accountId);
+  if (!existsSync(filePath)) return false;
+  try {
+    unlinkSync(filePath);
+    logger.info('Account deleted', { accountId });
+    return true;
+  } catch (err) {
+    logger.error('Failed to delete account', { accountId, error: err instanceof Error ? err.message : String(err) });
+    return false;
   }
 }

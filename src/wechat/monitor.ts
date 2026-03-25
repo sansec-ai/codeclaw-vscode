@@ -18,7 +18,16 @@ export function createMonitor(api: WeChatApi, callbacks: MonitorCallbacks) {
   const controller = new AbortController();
   let stopped = false;
   const recentMsgIds = new Set<number>();
+  const recentMsgHashes = new Set<string>(); // content-based dedup fallback
   const MAX_MSG_IDS = 1000;
+  const MAX_MSG_HASHES = 500;
+
+  function msgHash(msg: WeixinMessage): string {
+    // Hash user_id + text + timestamp (5s window) for content-based dedup
+    const text = msg.item_list?.map(i => i.text_item?.text ?? '').join('') ?? '';
+    const ts5s = Math.floor((msg.create_time_ms ?? 0) / 5000);
+    return `${msg.from_user_id}:${ts5s}:${text}`;
+  }
 
   async function run(): Promise<void> {
     let consecutiveFailures = 0;
@@ -50,11 +59,20 @@ export function createMonitor(api: WeChatApi, callbacks: MonitorCallbacks) {
         if (messages.length > 0) {
           logger.info('Received messages', { count: messages.length });
           for (const msg of messages) {
-            if (msg.message_id && recentMsgIds.has(msg.message_id)) {
+            // Dedup by message_id (if present and non-zero)
+            const hasId = msg.message_id !== undefined && msg.message_id !== null && msg.message_id !== 0;
+            if (hasId && recentMsgIds.has(msg.message_id!)) {
+              logger.debug('Skipping duplicate message by id', { messageId: msg.message_id });
               continue;
             }
-            if (msg.message_id) {
-              recentMsgIds.add(msg.message_id);
+            // Dedup by content hash (fallback for missing/zero message_id)
+            const hash = msgHash(msg);
+            if (recentMsgHashes.has(hash)) {
+              logger.debug('Skipping duplicate message by hash', { hash });
+              continue;
+            }
+            if (hasId) {
+              recentMsgIds.add(msg.message_id!);
               if (recentMsgIds.size > MAX_MSG_IDS) {
                 const iter = recentMsgIds.values();
                 const toDelete: number[] = [];
@@ -64,6 +82,16 @@ export function createMonitor(api: WeChatApi, callbacks: MonitorCallbacks) {
                 }
                 for (const id of toDelete) recentMsgIds.delete(id);
               }
+            }
+            recentMsgHashes.add(hash);
+            if (recentMsgHashes.size > MAX_MSG_HASHES) {
+              const iter = recentMsgHashes.values();
+              const toDelete: string[] = [];
+              for (let i = 0; i < MAX_MSG_HASHES / 2; i++) {
+                const { value } = iter.next();
+                if (value !== undefined) toDelete.push(value);
+              }
+              for (const h of toDelete) recentMsgHashes.delete(h);
             }
             try {
               await callbacks.onMessage(msg);

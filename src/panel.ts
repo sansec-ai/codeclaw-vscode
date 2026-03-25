@@ -50,6 +50,7 @@ export class WeChatPanel {
   private _disposables: vscode.Disposable[] = [];
   private readonly _extensionUri: vscode.Uri;
   private _state: ViewState = DISCONNECTED_STATE;
+  private _stateVersion = 0;
 
   private static readonly VIEW_TYPE = 'wechatClaudeCode';
 
@@ -83,7 +84,7 @@ export class WeChatPanel {
     this._extensionUri = extensionUri;
     if (initialState) { this._state = initialState; }
 
-    this._panel.webview.html = getWebviewHtml('full', this._state);
+    this._panel.webview.html = getWebviewHtml('full', this._state, this._stateVersion);
 
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
@@ -107,27 +108,28 @@ export class WeChatPanel {
 
   public showQrCode(dataUri: string): void {
     this._state = { ...this._state, showQr: true, showConnect: false };
-    this._panel.webview.postMessage({ command: 'showQrCode', dataUri });
+    this._panel.webview.postMessage({ command: 'showQrCode', dataUri, version: this._stateVersion });
   }
 
   public hideQrCode(): void {
     this._state = { ...this._state, showQr: false };
-    this._panel.webview.postMessage({ command: 'hideQrCode' });
+    this._panel.webview.postMessage({ command: 'hideQrCode', version: this._stateVersion });
   }
 
   public showConnectButton(): void {
     this._state = { ...this._state, showConnect: true, showDisconnect: false };
-    this._panel.webview.postMessage({ command: 'showConnectButton' });
+    this._panel.webview.postMessage({ command: 'showConnectButton', version: this._stateVersion });
   }
 
   public setState(state: ViewState): void {
     this._state = state;
-    this._panel.webview.html = getWebviewHtml('full', state);
+    this._stateVersion++;
+    this._panel.webview.html = getWebviewHtml('full', state, this._stateVersion);
   }
 
   public updateStatus(status: string): void {
     this._state.status = status;
-    this._panel.webview.postMessage({ command: 'updateStatus', status });
+    this._panel.webview.postMessage({ command: 'updateStatus', status, version: this._stateVersion });
   }
 
   public onDidDispose(callback: () => void): void {
@@ -152,6 +154,7 @@ export class WeChatSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = 'wechatVscodeSidebar';
   private _view?: vscode.WebviewView;
   private _state: ViewState = DISCONNECTED_STATE;
+  private _stateVersion = 0;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -190,29 +193,34 @@ export class WeChatSidebarProvider implements vscode.WebviewViewProvider {
     });
   }
 
-  /** Update the internal state so next resolveWebviewView renders it correctly. */
+  /** Update the internal state and push to WebView immediately. */
   public setViewState(state: ViewState): void {
     this._state = state;
+    this._stateVersion++;
+    // Push full state update to WebView so it re-renders immediately
+    if (this._view) {
+      this._view.webview.html = getWebviewHtml('sidebar', state, this._stateVersion);
+    }
   }
 
   public showQrCode(dataUri: string): void {
     this._state = { ...this._state, showQr: true, showConnect: false };
-    this._view?.webview.postMessage({ command: 'showQrCode', dataUri });
+    this._view?.webview.postMessage({ command: 'showQrCode', dataUri, version: this._stateVersion });
   }
 
   public hideQrCode(): void {
     this._state = { ...this._state, showQr: false };
-    this._view?.webview.postMessage({ command: 'hideQrCode' });
+    this._view?.webview.postMessage({ command: 'hideQrCode', version: this._stateVersion });
   }
 
   public showConnectButton(): void {
     this._state = { ...this._state, showConnect: true, showDisconnect: false };
-    this._view?.webview.postMessage({ command: 'showConnectButton' });
+    this._view?.webview.postMessage({ command: 'showConnectButton', version: this._stateVersion });
   }
 
   public updateStatus(status: string): void {
     this._state.status = status;
-    this._view?.webview.postMessage({ command: 'updateStatus', status });
+    this._view?.webview.postMessage({ command: 'updateStatus', status, version: this._stateVersion });
   }
 }
 
@@ -224,7 +232,7 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState): string {
+function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion?: number): string {
   const padding = mode === 'sidebar' ? '12px' : '20px';
   const titleSize = mode === 'sidebar' ? '1.2em' : '1.5em';
   return /*html*/ `
@@ -307,10 +315,13 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState): string {
 
   <script>
     const vscode = acquireVsCodeApi();
+    let stateVersion = ${stateVersion ?? 0};
     function sendCmd(cmd) { vscode.postMessage({ command: cmd }); }
 
     window.addEventListener('message', (event) => {
       const msg = event.data;
+      // Ignore stale messages from before the last full HTML re-render
+      if (msg.version !== undefined && msg.version !== stateVersion) return;
       switch (msg.command) {
         case 'showQrCode':
           document.getElementById('qrImage').src = msg.dataUri;

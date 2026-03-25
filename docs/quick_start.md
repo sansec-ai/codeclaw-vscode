@@ -101,6 +101,8 @@ Claude Code will analyze your project and reply directly in WeChat.
 | `/cwd /path/to/dir` | Change Claude's working directory |
 | `/model claude-sonnet-4-6` | Switch Claude model |
 | `/mode 2` | Switch to auto-accept file edits mode |
+| `/mode 3` | Skip all permission checks |
+| `/stream` | Toggle streaming mode |
 | `/status` | View current session info |
 
 **Permission mode shortcuts:** `0` = plan, `1` = default, `2` = acceptEdits, `3+` = bypassPermissions
@@ -110,6 +112,8 @@ Claude Code will analyze your project and reply directly in WeChat.
 - **Long responses**: Claude's full reply is sent as a single message (no splitting). Large outputs may take a moment.
 - **Images**: Send screenshots from WeChat — Claude can analyze them.
 - **Streaming**: By default, Claude's intermediate tool calls are logged to the VSCode Output Channel (`View → Output → WeChat Claude Code`). Only the final result is sent to WeChat.
+- **Checklist tracking**: When Claude uses TodoWrite, task progress is automatically pushed to your WeChat with a visual progress bar.
+- **Permission denials**: If Claude says it did something but the tool was actually denied, you'll see a tip with `/mode` suggestions. Use `/mode 3` to bypass all permissions.
 - **Auto-reconnect**: If VSCode restarts, the extension automatically reconnects using saved credentials.
 - **Session expiry**: If the WeChat session expires, click "重新绑定" (Rebind) in the sidebar to scan a new QR code.
 
