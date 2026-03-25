@@ -90,12 +90,19 @@ function buildSubprocessEnv(): Record<string, string | undefined> {
   }
   for (const { name, value } of wechatEnv) { env[name] = value; }
 
-  // Log (masked)
+  // Log (masked — hide all values for sensitive variable prefixes)
+  const sensitivePrefixes = ['TOKEN', 'KEY', 'SECRET', 'PASSWORD', 'PASSWD', 'CREDENTIAL', 'AUTH'];
   const masked: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) {
-    if (k.includes('TOKEN') || k.includes('KEY') || k.includes('SECRET') || k.includes('PASSWORD')) {
-      masked[k] = v ? `${v.slice(0, 6)}...` : '(empty)';
-    } else if (k.startsWith('ANTHROPIC') || k.startsWith('CLAUDE')) {
+    const upper = k.toUpperCase();
+    const isSensitive = sensitivePrefixes.some(p => upper.includes(p));
+    // Also mask all ANTHROPIC_* and CLAUDE_* values (except known non-secret vars)
+    const isAnthropic = upper.startsWith('ANTHROPIC') || upper.startsWith('CLAUDE');
+    const isKnownNonSecret = ['ANTHROPIC_MODEL', 'ANTHROPIC_BASE_URL', 'CLAUDE_AGENT_SDK_VERSION'].includes(upper);
+
+    if ((isSensitive || isAnthropic) && !isKnownNonSecret && v) {
+      masked[k] = v.length > 8 ? `${v.slice(0, 6)}...` : '***';
+    } else {
       masked[k] = v || '(empty)';
     }
   }

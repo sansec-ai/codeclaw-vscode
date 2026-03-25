@@ -46,45 +46,48 @@ export interface LockHandle {
  * Returns the lock handle on success, or null if another instance holds it.
  *
  * Uses 'wx' flag (exclusive create) for atomic cross-process locking.
- * On Windows, falls back to PID-based stale check.
+ * On stale lock (holder PID dead), cleans up and retries once.
  */
 export function acquireInstanceLock(accountId: string): LockHandle | null {
   const lockPath = join(LOCK_DIR, `${accountId}.lock`);
   mkdirSync(LOCK_DIR, { recursive: true });
 
   const myPid = process.pid;
+  const maxAttempts = 2;
 
-  try {
-    // Try to create the lock file exclusively — fails if already exists
-    writeFileSync(lockPath, String(myPid), { flag: 'wx' });
-    return { path: lockPath, pid: myPid };
-  } catch (err: any) {
-    if (err.code === 'EEXIST') {
-      // Lock file exists — check if the holder is still alive
-      try {
-        const holderPid = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
-        if (isNaN(holderPid)) {
-          // Corrupted lock file — remove and retry
-          try { unlinkSync(lockPath); } catch {}
-          return acquireInstanceLock(accountId); // retry once
-        }
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      // Try to create the lock file exclusively — fails if already exists
+      writeFileSync(lockPath, String(myPid), { flag: 'wx' });
+      return { path: lockPath, pid: myPid };
+    } catch (err: any) {
+      if (err.code === 'EEXIST' && attempt < maxAttempts - 1) {
+        // Lock file exists — check if the holder is still alive
+        try {
+          const holderPid = parseInt(readFileSync(lockPath, 'utf-8').trim(), 10);
+          if (isNaN(holderPid)) {
+            // Corrupted lock file — remove and retry
+            try { unlinkSync(lockPath); } catch {}
+            continue;
+          }
 
-        // Check if the process is still running
-        if (isProcessAlive(holderPid)) {
-          // Another instance is running
+          if (isProcessAlive(holderPid)) {
+            // Another instance is running
+            return null;
+          } else {
+            // Stale lock — the holder process is gone
+            try { unlinkSync(lockPath); } catch {}
+            continue;
+          }
+        } catch {
           return null;
-        } else {
-          // Stale lock — the holder process is gone
-          try { unlinkSync(lockPath); } catch {}
-          return acquireInstanceLock(accountId); // retry once
         }
-      } catch {
-        return null;
       }
+      // Other errors or final attempt
+      return null;
     }
-    // Other errors (permissions, etc.)
-    return null;
   }
+  return null;
 }
 
 /**

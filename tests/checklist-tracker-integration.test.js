@@ -4,9 +4,10 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
 // Skip if SKIP_SLOW_TESTS is set
-if (process.env.SKIP_SLOW_TESTS === '1') {
+const skipSlow = !!process.env.SKIP_SLOW_TESTS;
+
+if (skipSlow) {
   console.log('⏭️  Skipping checklist-tracker integration test (SKIP_SLOW_TESTS=1)');
-  process.exit(0);
 }
 
 const path = require('path');
@@ -35,7 +36,9 @@ const { ChecklistTracker } = require('../out/claude/checklist-tracker');
  * Integration test: call Claude Agent SDK directly with a prompt that
  * forces TodoWrite usage, and verify ChecklistTracker captures updates.
  */
-describe('ChecklistTracker integration (real SDK)', () => {
+const shouldSkip = skipSlow || !hasApiConfig || !hasCli;
+
+describe('ChecklistTracker integration (real SDK)', { skip: shouldSkip ? 'No API config or CLI, or SKIP_SLOW_TESTS=1' : false }, () => {
 
   // Timeout: 120s for API call
   const TIMEOUT = 120_000;

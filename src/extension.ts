@@ -17,8 +17,6 @@ import { acquireInstanceLock, releaseInstanceLock } from './store';
 import type { LockHandle } from './store';
 import QRCode from 'qrcode';
 
-const MAX_MESSAGE_LENGTH = 2048;
-
 // ========== Global State ==========
 let panelInstance: WeChatPanel | undefined;
 let sidebarProvider: WeChatSidebarProvider;
@@ -36,23 +34,7 @@ let currentLock: LockHandle | null = null;
 
 // ========== Helpers ==========
 
-function splitMessage(text: string, maxLen: number = MAX_MESSAGE_LENGTH): string[] {
-  if (text.length <= maxLen) { return [text]; }
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLen) { chunks.push(remaining); break; }
-    let splitIdx = remaining.lastIndexOf('\n', maxLen);
-    if (splitIdx < maxLen * 0.3) { splitIdx = maxLen; }
-    chunks.push(remaining.slice(0, splitIdx));
-    remaining = remaining.slice(splitIdx).replace(/^\n+/, '');
-  }
-  return chunks;
-}
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
 
 function extractTextFromItems(items: NonNullable<WeixinMessage['item_list']>): string {
   return items.map((item) => extractText(item)).filter(Boolean).join('\n');
@@ -293,16 +275,16 @@ async function doQrBind(): Promise<void> {
 
   try {
     const { qrcodeUrl, qrcodeId } = await startQrLogin();
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted) { qrBindAbort = null; return; }
 
     const dataUri = await QRCode.toDataURL(qrcodeUrl, { width: 300, margin: 2 });
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted) { qrBindAbort = null; return; }
 
     showQrCode(dataUri);
     statusBar.setStatus('scanning');
 
     const account = await waitForQrScan(qrcodeId, abort.signal);
-    if (abort.signal.aborted) return;
+    if (abort.signal.aborted) { qrBindAbort = null; return; }
 
     // Notify old WeChat user that connection is being replaced (if applicable)
     if (currentAccount && currentAccount.accountId !== account.accountId) {
@@ -480,7 +462,7 @@ async function handleMessage(
 
   try {
     // Double-check session is still valid after waiting for lock
-    if (!currentAccount || currentAccount.accountId !== account.accountId) {
+    if (!currentAccount || currentAccount.accountId !== account.accountId || currentSession !== session) {
       return;
     }
 
@@ -571,7 +553,8 @@ async function handleMessage(
           return;
         }
         default:
-          break;
+          await sender.sendText(fromUserId, contextToken, '❓ 未知命令: /' + cmd + '\n输入 /help 查看可用命令');
+          return;
       }
     }
 
@@ -599,7 +582,7 @@ async function handleMessage(
     setUiState(processingState());
 
     // Checklist tracker: monitors TodoWrite tool calls and sends progress to WeChat
-    const checklistTracker = new ChecklistTracker(9); // max 9 updates (reserve 1 for final result)
+    const checklistTracker = new ChecklistTracker(8); // max 8 updates (reserve 2 for safety margin)
     let checklistUpdateCount = 0;
 
     try {

@@ -1,13 +1,5 @@
+import { homedir } from 'node:os';
 import { STATS_URL } from './stats-config';
-
-const homedir = (() => {
-  try {
-    const os = require('os') as typeof import('os');
-    return os.homedir();
-  } catch {
-    return '';
-  }
-})();
 
 /**
  * Report a user prompt event to the stats server (fire-and-forget).
