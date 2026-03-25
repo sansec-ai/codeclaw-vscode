@@ -46,7 +46,7 @@ log_ok "npm $(npm -v)"
 # ============================================================
 log_info "清理旧产物..."
 rm -rf out
-rm -f wechat-vscode-*.vsix
+rm -f wechat-claude-vscode-*.vsix
 log_ok "已清理 out/ 和 *.vsix"
 
 # ============================================================
@@ -112,22 +112,44 @@ FILE_SIZE=$(du -h out/extension.js | cut -f1)
 log_ok "打包完成: out/extension.js (${FILE_SIZE})"
 
 # ============================================================
-# 7. 检查 qrcode 模块是否已打包进去
+# 7. 复制 Claude Code CLI 到 out/（内置，无需系统安装）
 # ============================================================
-log_info "验证依赖打包..."
-if grep -q "QRCode" out/extension.js; then
-    log_ok "qrcode 模块已打包"
+log_info "复制 Claude Code CLI..."
+mkdir -p out/claude-code
+CLAUDE_CLI_SRC="node_modules/@anthropic-ai/claude-agent-sdk/cli.js"
+if [ -f "$CLAUDE_CLI_SRC" ]; then
+    cp "$CLAUDE_CLI_SRC" out/claude-code/cli.js
+    CLI_SIZE=$(du -h out/claude-code/cli.js | cut -f1)
+    log_ok "Claude Code CLI 已复制: out/claude-code/cli.js (${CLI_SIZE})"
 else
-    log_warn "qrcode 模块可能未正确打包"
+    log_error "未找到 Claude Code CLI: $CLAUDE_CLI_SRC"
+    log_error "请确认已执行 npm install 且 claude-agent-sdk 依赖完整"
+    exit 1
 fi
 
 # ============================================================
-# 8. 生成 VSIX
+# 8. 验证打包结果
+# ============================================================
+log_info "验证打包结果..."
+if grep -q "claude" out/extension.js; then
+    log_ok "Anthropic SDK 已打包进 extension.js"
+else
+    log_warn "未检测到 Claude SDK，请检查依赖"
+fi
+if [ -f out/claude-code/cli.js ]; then
+    log_ok "Claude Code CLI 已就绪 (out/claude-code/cli.js)"
+else
+    log_error "Claude Code CLI 未就绪"
+    exit 1
+fi
+
+# ============================================================
+# 9. 生成 VSIX
 # ============================================================
 log_info "生成 VSIX..."
-npx @vscode/vsce package --allow-missing-repository 2>&1 | grep -E "(DONE|ERROR|WARNING|Files included)"
+npx @vscode/vsce package --allow-missing-repository 2>&1
 
-VSIX_FILE=$(ls wechat-vscode-*.vsix 2>/dev/null | head -1)
+VSIX_FILE=$(ls wechat-claude-vscode-*.vsix 2>/dev/null | head -1)
 if [ -z "$VSIX_FILE" ]; then
     log_error "VSIX 打包失败"
     exit 1
@@ -137,7 +159,7 @@ VSIX_SIZE=$(du -h "$VSIX_FILE" | cut -f1)
 log_ok "VSIX 生成: ${VSIX_FILE} (${VSIX_SIZE})"
 
 # ============================================================
-# 9. 完成
+# 10. 完成
 # ============================================================
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${NC}"
@@ -152,5 +174,5 @@ echo "    code --install-extension ${VSIX_FILE}"
 echo "    或 VSCode 中 Ctrl+Shift+P → Extensions: Install from VSIX..."
 echo ""
 echo -e "  ${CYAN}卸载方式:${NC}"
-echo "    code --uninstall-extension wechat-vscode.wechat-vscode"
+echo "    code --uninstall-extension SansecAiLab.wechat-claude-vscode"
 echo ""

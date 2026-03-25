@@ -9,7 +9,7 @@ import { createMonitor, type MonitorCallbacks } from './wechat/monitor';
 import { createSender } from './wechat/send';
 import { extractText, extractFirstImageUrl } from './wechat/media';
 import { createSessionStore, type Session } from './session';
-import { claudeQuery, type QueryOptions } from './claude/provider';
+import { claudeQuery, type QueryOptions, plainText } from './claude/provider';
 import { MessageType, type WeixinMessage } from './wechat/types';
 import QRCode from 'qrcode';
 
@@ -42,6 +42,10 @@ function splitMessage(text: string, maxLen: number = MAX_MESSAGE_LENGTH): string
     remaining = remaining.slice(splitIdx).replace(/^\n+/, '');
   }
   return chunks;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 function extractTextFromItems(items: NonNullable<WeixinMessage['item_list']>): string {
@@ -270,13 +274,14 @@ function startDaemon(account: AccountData, cwd: string): void {
   const sessionStore = createSessionStore();
   const session: Session = sessionStore.load(account.accountId);
 
-  if (cwd && session.workingDirectory !== cwd) {
-    session.workingDirectory = cwd;
+  const effectiveCwd = cwd || process.cwd();
+  if (session.workingDirectory !== effectiveCwd) {
+    session.workingDirectory = effectiveCwd;
     sessionStore.save(account.accountId, session);
   }
 
   currentAccount = account;
-  currentCwd = cwd;
+  currentCwd = effectiveCwd;
   currentSession = session;
   currentSessionStore = sessionStore;
 
@@ -379,20 +384,28 @@ async function handleMessage(
         if (!args) {
           await sender.sendText(fromUserId, contextToken, [
             '当前权限模式: ' + (session.permissionMode || 'default'),
-            '', '可用模式:',
-            '  default      默认（逐次确认）',
-            '  acceptEdits  自动接受文件编辑',
-            '  plan         仅规划不执行',
-            '', '用法: /mode <模式名>',
+            '',
+            '可用模式（名称或数字快捷键）:',
+            '  0 / plan              仅规划不执行',
+            '  1 / default            默认（逐次确认）',
+            '  2 / acceptEdits        自动接受文件编辑',
+            '  3 / bypassPermissions  跳过所有权限检查',
+            '',
+            '用法: /mode <模式名或数字>',
           ].join('\n'));
         } else {
-          const validModes = ['default', 'acceptEdits', 'plan'];
-          if (!validModes.includes(args)) {
-            await sender.sendText(fromUserId, contextToken, '❌ 无效模式: ' + args + '\n可用: default, acceptEdits, plan');
+          const numMap: Record<string, string> = {
+            '0': 'plan', '1': 'default', '2': 'acceptEdits', '3': 'bypassPermissions',
+            '4': 'bypassPermissions', '5': 'bypassPermissions',
+          };
+          const resolved = numMap[args.trim()] || args.trim();
+          const validModes = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+          if (!validModes.includes(resolved)) {
+            await sender.sendText(fromUserId, contextToken, '❌ 无效模式: ' + args + '\n可用: 0(plan), 1(default), 2(acceptEdits), 3(bypassPermissions)');
           } else {
-            session.permissionMode = args as Session['permissionMode'];
+            session.permissionMode = resolved as Session['permissionMode'];
             sessionStore.save(account.accountId, session);
-            await sender.sendText(fromUserId, contextToken, '✅ 权限模式已切换为: ' + args);
+            await sender.sendText(fromUserId, contextToken, '✅ 权限模式已切换为: ' + resolved);
           }
         }
         return;
@@ -420,6 +433,13 @@ async function handleMessage(
     return;
   }
 
+  logger.info('User message', { text: userText, hasImage: !!imageItem });
+
+  // Read streaming config
+  const streaming = vscode.workspace
+    .getConfiguration('wechat-vscode')
+    .get<boolean>('streaming', true);
+
   session.state = 'processing';
   sessionStore.save(account.accountId, session);
   statusBar.setStatus('processing');
@@ -428,27 +448,62 @@ async function handleMessage(
   try {
     const queryOptions: QueryOptions = {
       prompt: userText || '请分析这张图片',
-      cwd: session.workingDirectory || cwd,
-      continueSession: session.continuedSession,
+      cwd: session.workingDirectory || cwd || process.cwd(),
+      resume: session.continuedSession ? session.sdkSessionId : undefined,
       model: session.model,
       permissionMode: session.permissionMode,
+      streaming,
+      onIntermediate: streaming
+        ? async (msg) => {
+            // Only log intermediate messages, do NOT send to WeChat
+            const text = msg.displayText;
+            if (!text) return;
+            logger.info('Stream intermediate', {
+              type: msg.type,
+              preview: text.substring(0, 200),
+            });
+          }
+        : undefined,
     };
 
     const result = await claudeQuery(queryOptions);
+
+    if (result.sessionId) {
+      session.sdkSessionId = result.sessionId;
+      session.continuedSession = true;
+      logger.info('Session resumed', { sessionId: result.sessionId });
+    }
 
     if (result.error) {
       logger.error('Claude query error', { error: result.error });
       await sender.sendText(fromUserId, contextToken, '⚠️ Claude 处理请求时出错:\n' + result.error);
     } else if (result.text) {
-      const chunks = splitMessage(result.text);
-      for (const chunk of chunks) {
-        await sender.sendText(fromUserId, contextToken, chunk);
+      // Send the full result as a single message, no splitting
+      const finalText = plainText(result.text);
+      await sender.sendText(fromUserId, contextToken, finalText);
+
+      // If there were permission denials, append a warning
+      if (result.permissionDenials && result.permissionDenials.length > 0) {
+        const deniedTools = result.permissionDenials.map(d => d.tool_name).filter(Boolean);
+        const uniqueTools = [...new Set(deniedTools)];
+        const currentMode = session.permissionMode ?? 'default';
+        const tip = [
+          '⚠️ 部分操作因权限限制未执行',
+          '',
+          '被拒绝的工具: ' + uniqueTools.join(', '),
+          '',
+          '当前权限模式: ' + currentMode,
+          '',
+          '如需自动授权，请发送:',
+          '  /mode 2  (自动接受文件编辑)',
+          '  /mode 3  (跳过所有权限检查)',
+        ].join('\n');
+        await sender.sendText(fromUserId, contextToken, tip);
       }
     } else {
       await sender.sendText(fromUserId, contextToken, 'ℹ️ Claude 无返回内容');
     }
 
-    session.continuedSession = true;
     session.state = 'idle';
     sessionStore.save(account.accountId, session);
     statusBar.setStatus('connected');

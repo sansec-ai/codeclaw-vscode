@@ -25,7 +25,7 @@ export interface Session {
   continuedSession?: boolean;
   workingDirectory: string;
   model?: string;
-  permissionMode?: 'default' | 'acceptEdits' | 'plan';
+  permissionMode?: 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
   state: SessionState;
   chatHistory: ChatMessage[];
   maxHistoryLength?: number;

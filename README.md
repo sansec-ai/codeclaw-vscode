@@ -1,306 +1,323 @@
-# WeChat Claude Code — VSCode 扩展
+# WeChat Claude Code
 
-通过微信远程控制 VSCode 项目，使用 Claude Code 处理微信消息，实现手机端操作代码。
+> Control Claude Code in your VSCode workspace from WeChat via ClawBot
 
-## ✨ 功能特性
+## Overview
 
-| 功能 | 说明 |
-|------|------|
-| 📱 **扫码绑定** | 在 VSCode 侧边栏 WebView 中显示二维码，微信扫描即可绑定 |
-| 🔄 **后台监听** | 绑定成功后自动在后台长轮询监听微信消息 |
-| 💬 **微信操控项目** | 微信中发送文字/图片，Claude Code 将处理请求并操作当前工作目录 |
-| 📊 **状态栏** | VSCode 底部状态栏实时显示连接状态（未连接/连接中/已连接/处理中/错误） |
-| 🗂️ **侧边栏面板** | 左侧 Activity Bar 微信图标，点击展开面板，显示二维码、状态和操作日志 |
-| 📝 **斜杠命令** | 支持会话管理命令：`/help`、`/clear`、`/cwd`、`/model`、`/status` |
-| 💾 **会话持久化** | 会话数据保存在 `~/.wechat-claude-code/`，重启 VSCode 自动重连 |
-| 🔁 **自动重连** | 已绑定账号时，打开项目自动恢复连接 |
+A VSCode extension that turns your personal WeChat into a remote control terminal for Claude Code — through WeChat's official **ClawBot** (iLink) API. Send a message from your phone, and Claude Code in VSCode writes code for you.
 
-## 🚀 快速开始
+### Why WeChat Claude Code?
 
-### 前置条件
+- 🏛️ **Uses WeChat's official ClawBot (iLink) API** — no reverse engineering, no third-party WeChat clients
+- 📦 **Bundled Claude Code CLI** — zero external dependencies, install and go
+- 🔁 **Persistent sessions** — Claude remembers context across messages
+- ⚡ **Streaming support** — watch Claude's tool calls in real-time from your phone
+- 🔌 **Any Anthropic-compatible API** — works with OpenRouter, AWS Bedrock, custom endpoints
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| 📱 **QR Code Binding** | Display a QR code in the VSCode sidebar WebView; scan with WeChat to bind |
+| 🔄 **Background Polling** | After binding, automatically long-polls for WeChat messages in the background |
+| 💬 **WeChat → Claude** | Send text/images from WeChat; Claude Code processes the request in your current workspace |
+| 🔁 **Continuous Sessions** | Maintains context across conversations; Claude remembers previous operations. Send `/new` to start fresh |
+| ⚡ **Streaming Output** | Tool calls and intermediate results pushed to WeChat in real-time (toggleable) |
+| 📊 **Status Bar** | VSCode bottom status bar shows real-time connection state (disconnected/connecting/connected/processing/error) |
+| 🗂️ **Sidebar Panel** | WeChat icon in Activity Bar; click to expand panel with QR code, status, and operation logs |
+| 📝 **Slash Commands** | Session management: `/help`, `/new`, `/cwd`, `/model`, `/mode`, `/status` |
+| 💾 **Session Persistence** | Session data saved in `~/.wechat-claude-code/`; auto-reconnects on VSCode restart |
+| 📦 **Zero External Dependencies** | Claude Code CLI bundled inside the extension — no separate installation needed |
+
+## 🚀 Quick Start
+
+### Prerequisites
 
 - **VSCode** >= 1.85.0
-- **Node.js** >= 18
-- **Claude Code** CLI 已安装并配置（[安装文档](https://docs.anthropic.com/en/docs/claude-code)）
-- 个人微信账号
+- **Personal WeChat account** with ClawBot support (iOS WeChat, currently in beta)
+- **Anthropic API key** (or compatible provider)
 
-### 安装扩展
+### Installation
 
-#### 方式一：从 VSIX 安装（推荐）
+#### From VSIX (recommended)
 
-1. 获取 `wechat-vscode-0.1.0.vsix` 文件
-2. VSCode 中按 `Ctrl+Shift+P`（macOS: `Cmd+Shift+P`）
-3. 输入 `Extensions: Install from VSIX...`
-4. 选择 `.vsix` 文件
-5. 重新加载 VSCode 窗口
+1. Get the `wechat-claude-vscode-0.1.77.vsix` file
+2. In VSCode, press `Ctrl+Shift+P` (macOS: `Cmd+Shift+P`)
+3. Type `Extensions: Install from VSIX...`
+4. Select the `.vsix` file
+5. Reload the VSCode window
 
-#### 方式二：从源码安装
+#### From VSCode Marketplace (after publishing)
+
+Search for **"WeChat Claude Code"** in the Extensions view and click Install.
+
+#### From Source
 
 ```bash
 git clone https://gitee.com/jiadx1/wechat-vscode.git
 cd wechat-vscode
 npm install
 ./build.sh
-# 然后安装生成的 .vsix 文件
+# Then install the generated .vsix file
 ```
 
-### 使用步骤
+### Getting Started
 
-1. **打开项目** — 在 VSCode 中打开一个项目文件夹（工作目录）
-2. **配置环境变量** — 在 VSCode Settings 中配置 Claude Code 的 API 地址和密钥（见下方配置说明）
-3. **打开面板** — 点击左侧 Activity Bar 的微信图标，或按 `Ctrl+Shift+P` → `WeChat: 连接微信`
-4. **扫码绑定** — 在侧边栏面板中扫描二维码绑定微信
-5. **开始使用** — 绑定成功后，在微信中发送消息即可操作项目
+> 📖 For a detailed step-by-step guide, see the [Quick Start Guide](docs/quick_start.md).
 
-### 打开面板的三种方式
+1. **Open a project** — Open a project folder in VSCode (this becomes your working directory)
+2. **Configure API credentials** — Set up your API key in VSCode Settings (see Configuration below)
+3. **Click the WeChat icon** — In the Activity Bar (left sidebar), click the WeChat icon
+4. **Scan QR code** — Use WeChat to scan the QR code displayed in the panel
+5. **Send messages** — Start chatting with Claude Code from WeChat!
 
-| 方式 | 操作 |
-|------|------|
-| 🖱️ **侧边栏** | 点击 VSCode 左侧 Activity Bar 的微信图标 |
-| ⌨️ **命令面板** | `Ctrl+Shift+P` → 输入 `WeChat` → 选择命令 |
-| 📊 **状态栏** | 点击底部状态栏的 `WeChat: 未连接/已连接` |
+### Three Ways to Open the Panel
 
-## ⚙️ 配置说明
+| Method | Action |
+|--------|--------|
+| 🖱️ **Sidebar** | Click the WeChat icon in the VSCode Activity Bar |
+| ⌨️ **Command Palette** | `Ctrl+Shift+P` → type `WeChat` → select a command |
+| 📊 **Status Bar** | Click the `WeChat: Disconnected/Connected` indicator at the bottom |
 
-Claude Code CLI 调用时需要提供 API 地址和认证信息。插件使用与 Claude Code 插件**完全相同**的 `environmentVariables` 数组格式，配置了哪些变量就加载哪些。
+## ⚙️ Configuration
 
-### 加载优先级（高 → 低）
+### Settings Reference
 
-```
-① wechat-vscode.environmentVariables（本插件配置）
-     ↓ 未配置的变量回退
-② claudeCode.environmentVariables（Claude Code 插件配置，兼容复用）
-     ↓ 未配置的变量回退
-③ 系统环境变量 process.env
-```
+| Setting | Type | Default | Description |
+|---------|------|---------|-------------|
+| `wechat-vscode.logLevel` | enum | `INFO` | Extension log level: `DEBUG` / `INFO` / `WARN` / `ERROR` |
+| `wechat-vscode.streaming` | boolean | `true` | Push Claude Code intermediate output to WeChat in real-time |
+| `wechat-vscode.environmentVariables` | array | `[]` | Environment variables passed to the Claude Code CLI |
 
-> **零配置兼容**：如果已安装 Claude Code 插件并配置了 `claudeCode.environmentVariables`，本插件自动读取，无需重复配置。
-
-### 方式一：本插件独立配置
-
-在 VSCode `settings.json` 中添加：
+Configure in VSCode `settings.json`:
 
 ```jsonc
 {
+  // Log level (DEBUG / INFO / WARN / ERROR)
+  "wechat-vscode.logLevel": "INFO",
+
+  // Streaming: true = real-time intermediate output to WeChat, false = final result only
+  "wechat-vscode.streaming": true,
+
+  // Claude Code API configuration
   "wechat-vscode.environmentVariables": [
-    {
-      "name": "ANTHROPIC_BASE_URL",
-      "value": "https://open.bigmodel.cn/api/anthropic"
-    },
-    {
-      "name": "ANTHROPIC_AUTH_TOKEN",
-      "value": "your-api-token-here"
-    },
-    {
-      "name": "ANTHROPIC_MODEL",
-      "value": "claude-sonnet-4-6"
-    }
+    { "name": "ANTHROPIC_BASE_URL", "value": "https://api.anthropic.com" },
+    { "name": "ANTHROPIC_AUTH_TOKEN", "value": "your-api-key-here" },
+    { "name": "ANTHROPIC_MODEL", "value": "claude-sonnet-4-6" }
   ]
 }
 ```
 
-变量名直接使用环境变量原名（如 `ANTHROPIC_BASE_URL`），不需要转换。配了哪些就加载哪些。
+### Environment Variable Loading Priority
 
-### 方式二：复用 Claude Code 插件配置（零配置）
-
-如果已安装 Claude Code 插件，直接使用它的配置：
-
-```jsonc
-{
-  "claudeCode.environmentVariables": [
-    {
-      "name": "ANTHROPIC_BASE_URL",
-      "value": "https://open.bigmodel.cn/api/anthropic"
-    },
-    {
-      "name": "ANTHROPIC_AUTH_TOKEN",
-      "value": "your-api-token-here"
-    }
-  ]
-}
+```
+① wechat-vscode.environmentVariables (this extension's config, highest priority)
+     ↓ Variables not configured fall back to
+② claudeCode.environmentVariables (Claude Code extension config, for compatibility)
+     ↓ Variables not configured fall back to
+③ System environment variables (process.env)
 ```
 
-> **混合使用**：可以同时配置两处。`wechat-vscode.environmentVariables` 中配了的变量优先级更高，覆盖 `claudeCode.environmentVariables` 中的同名变量；未配置的变量自动从 `claudeCode.environmentVariables` 回退。
+> **Zero-config compatibility**: If you already have the Claude Code extension with `claudeCode.environmentVariables` configured, this extension reads it automatically — no need to duplicate settings.
 
-### 自定义 Claude CLI 路径
+## 💬 Commands (Slash Commands)
 
-如果 `claude` 不在默认 PATH 中，可以指定完整路径：
+| Command | Description | Example |
+|---------|-------------|---------|
+| `/help` | Show help information | `/help` |
+| `/new` | Start a new session (clear context) | `/new` |
+| `/cwd <path>` | Change working directory | `/cwd /home/user/project` |
+| `/model <name>` | Switch Claude model | `/model claude-sonnet-4-6` |
+| `/mode <mode>` | Switch permission mode | `/mode acceptEdits` |
+| `/status` | View current session status | `/status` |
 
-```jsonc
-{
-  "wechat-vscode.claudeCommand": "/usr/local/bin/claude"
-}
+Type any text to chat with Claude Code — Claude will operate on your current VSCode project directory.
+
+### Permission Modes
+
+| Mode | Description |
+|------|-------------|
+| `plan` | Plan only, no execution |
+| `default` | Default — prompt for confirmation on dangerous operations |
+| `acceptEdits` | Auto-accept file edits |
+| `bypassPermissions` | Skip all permission checks |
+
+**Number shortcuts for `/mode`:**
+
+| Shortcut | Mode |
+|----------|------|
+| `0` | `plan` |
+| `1` | `default` |
+| `2` | `acceptEdits` |
+| `3+` | `bypassPermissions` |
+
+## ⚡ Streaming Output
+
+When `wechat-vscode.streaming` is enabled (default), Claude Code's intermediate output is pushed to WeChat in real-time:
+
+```
+Example message flow (streaming=true):
+
+You: Help me create a hello world app
+
+🔧 Write
+  {"path":"hello.js","content":"console.log('Hello World')"}
+
+✅ File created successfully
+
+Created hello.js for you with the following content:
+  console.log('Hello World')
+
+Run it with: node hello.js
 ```
 
-## 💬 微信端命令
+Tool calls are prefixed with 🔧, tool results with ✅/❌, and text replies are automatically converted from Markdown to WeChat-friendly plain text.
 
-在微信中发送以下命令进行会话管理：
+When streaming is disabled, WeChat only receives Claude's final reply text.
 
-| 命令 | 说明 | 示例 |
-|------|------|------|
-| `/help` | 显示帮助信息 | `/help` |
-| `/clear` | 清除当前会话，重新开始 | `/clear` |
-| `/cwd <路径>` | 切换 Claude Code 工作目录 | `/cwd /home/user/project` |
-| `/model <名称>` | 切换 Claude 模型 | `/model claude-sonnet-4-6` |
-| `/status` | 查看当前会话状态 | `/status` |
+## 🏗️ How It Works
 
-直接输入文字即可与 Claude Code 对话，Claude 会操作当前 VSCode 项目目录。
+```
+┌─────────────┐     iLink Bot API       ┌────────────────────────────┐
+│  WeChat      │ ◄────────────────────► │      VSCode Extension      │
+│  (Phone)     │     Long-poll + Send    │                            │
+└─────────────┘                        │  ┌──────────────────────┐  │
+                                       │  │ Claude Agent SDK      │  │
+                                       │  │  (bundled, no install)│  │
+                                       │  └──────────┬───────────┘  │
+                                       │             │ spawn        │
+                                       │  ┌──────────▼───────────┐  │
+                                       │  │ claude-code/cli.js    │  │
+                                       │  │ (bundled, operates    │  │
+                                       │  │  on workspace dir)    │  │
+                                       │  └──────────────────────┘  │
+                                       └────────────────────────────┘
+```
 
-## 🔧 开发指南
+1. **QR Binding** — Calls the WeChat iLink Bot API to generate a QR code; user scans to obtain a bot token
+2. **Message Polling** — Background long-polling receives WeChat messages, with deduplication and auto-reconnect
+3. **Claude Processing** — Invokes the bundled Claude Code CLI via `@anthropic-ai/claude-agent-sdk`, supporting continuous sessions (resume)
+4. **Streaming Output** — When enabled, tool calls and intermediate results are pushed to WeChat in real-time
+5. **Result Reply** — Claude's response is formatted as WeChat-friendly plain text and sent back
 
-### 项目结构
+### Bundled Claude Code CLI
+
+The extension bundles the Claude Code CLI (`cli.js` from `@anthropic-ai/claude-agent-sdk`) inside the `.vsix`. No separate installation is needed. The CLI version stays in sync with the SDK (currently 0.1.77).
+
+## Architecture
+
+```
+WeChat (Phone)  ←→  iLink Bot API  ←→  VSCode Extension  ←→  Claude Agent SDK (bundled)
+```
+
+- **Extension Entry** (`extension.ts`): `activate`/`deactivate`, command registration, message routing
+- **Daemon** (`monitor.ts`): Long-poll loop with deduplication and backoff
+- **Message Handler** (`extension.ts`): Dispatches user messages to Claude or slash command handlers
+- **Claude Provider** (`claude/provider.ts`): Wraps `@anthropic-ai/claude-agent-sdk` with streaming support
+- **WeChat Sender** (`wechat/send.ts`): Sends formatted replies back to WeChat
+
+## 📂 Project Structure
 
 ```
 wechat-vscode/
-├── package.json              # VSCode 扩展清单（命令、侧边栏、菜单、配置项）
-├── tsconfig.json             # TypeScript 编译配置（CommonJS）
-├── icon.svg                  # 侧边栏 Activity Bar 图标
-├── build.sh                  # 一键打包脚本（环境检查→编译→打包）
-├── .vscodeignore             # VSIX 打包排除规则
+├── package.json              # VSCode extension manifest (commands, sidebar, menus, settings)
+├── tsconfig.json             # TypeScript config (CommonJS)
+├── icon.svg                  # Activity Bar icon
+├── build.sh                  # One-click build script (env check → compile → package → VSIX)
+├── .vscodeignore             # VSIX packaging exclusion rules
 ├── README.md
 ├── src/
-│   ├── extension.ts          # 扩展入口（activate/deactivate、命令注册）
-│   ├── panel.ts              # WebView Panel + 侧边栏 WebviewViewProvider
-│   ├── statusbar.ts          # 底部状态栏管理
-│   ├── logger.ts             # VSCode OutputChannel 日志
-│   ├── session.ts            # 会话持久化（~/.wechat-claude-code/sessions/）
-│   ├── config.ts             # 配置管理（~/.wechat-claude-code/config.env）
-│   ├── permission.ts         # 权限审批管理
-│   ├── store.ts              # JSON 文件读写工具
-│   ├── constants.ts          # 常量定义
-│   ├── wechat/               # 微信通信模块（复用自 wechat-claude-code）
-│   │   ├── api.ts            # 微信 ilink bot API 封装
-│   │   ├── login.ts          # 二维码登录（生成二维码 + 轮询扫码状态）
-│   │   ├── monitor.ts        # 消息长轮询监听（带去重和断线重连）
-│   │   ├── send.ts           # 消息发送
-│   │   ├── accounts.ts       # 账号凭证管理
-│   │   ├── types.ts          # 协议类型定义
-│   │   ├── media.ts          # 图片/文本消息解析
-│   │   ├── cdn.ts            # 微信 CDN 媒体下载
-│   │   ├── crypto.ts         # AES 加密解密
-│   │   └── sync-buf.ts       # 消息同步缓冲
+│   ├── extension.ts          # Extension entry (activate/deactivate, command registration, message handling)
+│   ├── panel.ts              # WebView Panel + sidebar WebviewViewProvider
+│   ├── statusbar.ts          # Bottom status bar management
+│   ├── logger.ts             # Logging (DEBUG/INFO/WARN/ERROR level filtering)
+│   ├── session.ts            # Session persistence (~/.wechat-claude-code/sessions/)
+│   ├── config.ts             # Configuration management
+│   ├── permission.ts         # Permission approval management
+│   ├── store.ts              # JSON file read/write utilities
+│   ├── constants.ts          # Constants
+│   ├── wechat/               # WeChat communication module
+│   │   ├── api.ts            # WeChat iLink Bot API wrapper
+│   │   ├── login.ts          # QR code login
+│   │   ├── monitor.ts        # Message long-poll monitor (dedup + auto-reconnect)
+│   │   ├── send.ts           # Message sending
+│   │   ├── accounts.ts       # Account credential management
+│   │   ├── types.ts          # Protocol type definitions
+│   │   ├── media.ts          # Image/text message parsing
+│   │   ├── cdn.ts            # WeChat CDN media download
+│   │   ├── crypto.ts         # AES encryption/decryption
+│   │   └── sync-buf.ts       # Message polling sync buffer
 │   └── claude/
-│       └── provider.ts       # Claude Code CLI 调用（child_process + 环境变量加载）
-└── out/                      # 编译输出（.vsix 打包时包含）
+│       └── provider.ts       # Claude Agent SDK integration (streaming, Markdown → plain text)
+└── out/
+    ├── extension.js          # Compiled extension code (esbuild bundle)
+    └── claude-code/
+        └── cli.js            # Bundled Claude Code CLI (~11MB)
 ```
 
-### 本地开发
+## 🔧 Development
+
+### Local Development
 
 ```bash
-# 1. 克隆项目
 git clone https://gitee.com/jiadx1/wechat-vscode.git
 cd wechat-vscode
-
-# 2. 安装依赖
 npm install
-
-# 3. 监听模式编译（文件变更自动重编译）
-npm run watch
-
-# 4. 在 VSCode 中按 F5 启动 Extension Development Host 调试
+npm run watch          # Watch mode compilation
+# Press F5 in VSCode to launch Extension Development Host for debugging
 ```
 
-### 关键命令
+### Key Commands
 
 ```bash
-# 编译 TypeScript
-npm run compile
-
-# esbuild 开发模式打包（带 sourcemap）
-npm run esbuild
-
-# 监听模式编译
-npm run watch
-
-# 一键打包（推荐，含环境检查）
-./build.sh
-
-# 手动打包 .vsix
-npm run package
+npm run compile        # Compile TypeScript
+npm run esbuild        # esbuild dev build (with sourcemaps)
+npm run watch          # Watch mode compilation
+npm run package        # Generate .vsix
+./build.sh             # One-click build (recommended, includes full checks)
 ```
 
-## 📦 打包部署
-
-### 一键打包（推荐）
+## 📦 Build & Deploy
 
 ```bash
 ./build.sh
+# Generates wechat-vscode-0.1.77.vsix
 ```
 
-脚本会自动执行：环境检查 → 清理旧产物 → 安装依赖 → 文件检查 → 类型检查 → esbuild 打包 → 生成 VSIX。
+The script automatically runs: env check → clean old artifacts → install deps → file check → TypeScript type check → esbuild bundle → copy Claude Code CLI → verify → generate VSIX.
 
-### 手动打包
-
+Install:
 ```bash
-# 确保已安装依赖
-npm install
-
-# esbuild 打包所有依赖为单文件 + 生成 VSIX
-npm run package
+code --install-extension wechat-vscode-0.1.77.vsix
+# Or via VSCode Command Palette: Ctrl+Shift+P → Extensions: Install from VSIX...
 ```
 
-打包成功后在项目根目录生成 `wechat-vscode-0.1.0.vsix` 文件。
-
-### 安装到 VSCode
-
+Uninstall:
 ```bash
-# 方式一：命令行安装
-code --install-extension wechat-vscode-0.1.0.vsix
-
-# 方式二：VSCode 命令面板
-# Ctrl+Shift+P → Extensions: Install from VSIX... → 选择 .vsix 文件
+code --uninstall-extension SansecAiLab.wechat-claude-vscode
 ```
 
-### 卸载
-
-```bash
-# 命令行卸载
-code --uninstall-extension wechat-vscode.wechat-vscode
-
-# 或在 VSCode 扩展面板中右键 → Uninstall
-```
-
-## 🏗️ 工作原理
-
-```
-┌─────────────┐     ilink bot API      ┌──────────────────┐     child_process     ┌──────────────┐
-│  微信（手机） │ ◄────────────────────► │  VSCode 扩展后台  │ ◄───────────────────► │ Claude Code  │
-│  发送消息     │     长轮询 + 发送      │  消息监听守护进程  │    execFile('claude') │   CLI        │
-└─────────────┘                        └──────────────────┘                        └──────────────┘
-                                         ↕
-                                  ┌──────────────────┐
-                                  │   WebView 面板    │
-                                  │  二维码 / 状态栏   │
-                                  └──────────────────┘
-```
-
-1. **扫码绑定** — 调用微信 ilink bot API 生成二维码，用户扫码后获取 bot token
-2. **消息监听** — 后台长轮询 `ilink/bot/getupdates`，接收微信消息
-3. **Claude 处理** — 通过 `child_process.execFile` 调用 `claude -p <prompt>` 处理消息
-4. **结果回复** — 将 Claude 的回复通过 `ilink/bot/sendmessage` 发送回微信
-
-## 📂 数据目录
-
-与 [wechat-claude-code](https://github.com/Wechat-ggGitHub/wechat-claude-code) 共享数据目录：
+## 📂 Data Directory
 
 ```
 ~/.wechat-claude-code/
-├── accounts/       # 微信账号凭证（bot token 等，每个账号一个 JSON）
-├── config.env      # 全局配置（工作目录、模型、权限模式）
-├── sessions/       # 会话数据（聊天记录、SDK session ID）
-├── get_updates_buf # 消息轮询同步缓冲
-└── logs/           # 运行日志（按天轮转，保留 30 天）
+├── accounts/       # WeChat account credentials (bot token, etc.)
+├── sessions/       # Session data (SDK session ID, working directory, model settings)
+└── get_updates_buf # Message polling sync buffer
 ```
 
-## ⚠️ 注意事项
+## ⚠️ Notes
 
-- 需要安装 Claude Code CLI 并确保 `claude` 命令在 PATH 中可用（可在设置中自定义路径）
-- 微信 ilink bot API 依赖网络连通性（`ilinkai.weixin.qq.com`）
-- 会话过期后需要重新扫码绑定
-- Claude Code CLI 调用超时时间为 5 分钟，超长任务可能超时
-- 当前版本暂不支持图片消息处理（仅文字消息转发给 Claude）
-- 环境变量可通过 VSCode Settings 配置，无需在终端中 export
+- Requires an Anthropic API key (`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`)
+- Supports custom API endpoints (`ANTHROPIC_BASE_URL`) for third-party API proxies
+- WeChat iLink Bot API depends on network connectivity to `ilinkai.weixin.qq.com`
+- Sessions expire after some time — re-scan QR code to rebind
+- WeChat does not render Markdown — the extension automatically converts Markdown to plain text
 
 ## 📄 License
 
 MIT
+
+---
+
+**[中文文档](README_CN.md)**

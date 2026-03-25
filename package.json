@@ -1,9 +1,13 @@
 {
-  "name": "wechat-vscode",
+  "name": "wechat-claude-vscode",
   "displayName": "WeChat Claude Code",
-  "description": "通过微信控制 VSCode 项目 - 使用 Claude Code 处理微信消息",
-  "version": "0.1.0",
-  "publisher": "wechat-vscode",
+  "description": "Control Claude Code in VSCode via WeChat ClawBot — chat with Claude from your phone",
+  "version": "0.1.77",
+  "publisher": "SansecAiLab",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SansecAiLab/wechat-claude-vscode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -21,9 +25,12 @@
     "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
     "esbuild": "npm run esbuild-base -- --sourcemap",
     "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "package": "npm run vscode:prepublish && npx @vscode/vsce package --allow-missing-repository"
+    "package": "npm run vscode:prepublish && npx @vscode/vsce package --allow-missing-repository",
+    "test": "npm run compile && node --test tests/*.test.js",
+    "test:fast": "npm run compile && SKIP_SLOW_TESTS=1 node --test tests/*.test.js"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
@@ -34,25 +41,26 @@
     "typescript": "^5.7.0"
   },
   "categories": [
-    "Other"
+    "Other",
+    "Programming Languages",
+    "Machine Learning"
   ],
   "keywords": [
     "wechat",
     "claude",
     "claude-code",
     "bridge",
-    "chat"
+    "chat",
+    "clawbot",
+    "ilink",
+    "wechat-bot",
+    "ai-coding",
+    "remote-coding"
   ],
   "contributes": {
     "configuration": {
       "title": "WeChat Claude Code",
       "properties": {
-        "wechat-vscode.claudeCommand": {
-          "type": "string",
-          "default": "claude",
-          "description": "Claude Code CLI 可执行文件路径，默认使用 PATH 中的 claude",
-          "order": 1
-        },
         "wechat-vscode.environmentVariables": {
           "type": "array",
           "items": {
@@ -67,11 +75,33 @@
                 "description": "环境变量值"
               }
             },
-            "required": ["name", "value"]
+            "required": [
+              "name",
+              "value"
+            ]
           },
           "default": [],
           "description": "传递给 Claude CLI 的环境变量，格式与 claudeCode.environmentVariables 相同。配置了哪些就加载哪些，未配置的变量会自动从 claudeCode.environmentVariables 回退读取。",
           "order": 2
+        },
+        "wechat-vscode.logLevel": {
+          "type": "string",
+          "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+          "enumDescriptions": {
+            "DEBUG": "输出所有日志，包含详细的调试信息",
+            "INFO": "输出常规信息（默认）",
+            "WARN": "仅输出警告和错误",
+            "ERROR": "仅输出错误"
+          },
+          "default": "INFO",
+          "description": "插件日志级别，控制输出通道中的日志详细程度。",
+          "order": 1
+        },
+        "wechat-vscode.streaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "是否将 Claude Code 的中间过程（工具调用、思考等）实时发送到微信。关闭后仅发送最终结果。",
+          "order": 3
         }
       }
     },

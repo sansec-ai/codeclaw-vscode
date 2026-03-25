@@ -29,9 +29,9 @@ export function createSender(api: WeChatApi, botAccountId: string) {
       item_list: items,
     };
 
-    logger.info('Sending text message', { toUserId, clientId, textLength: text.length });
+    logger.info('Sending text message', { toUserId, messageInfo: text.length <= 100 ? `${text} (${text.length})` : `${text.substring(0, 100)}... (${text.length})` });
     await api.sendMessage({ msg });
-    logger.info('Text message sent', { toUserId, clientId });
+    logger.debug('Text message sent', { toUserId });
   }
 
   return { sendText };

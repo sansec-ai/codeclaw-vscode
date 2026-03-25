@@ -1,17 +1,49 @@
 import * as vscode from 'vscode';
 
+export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
+
+const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
+  DEBUG: 0,
+  INFO: 1,
+  WARN: 2,
+  ERROR: 3,
+};
+
 /**
  * Logger for the VSCode extension.
  * Uses the VSCode output channel instead of file-based logging.
+ * Respects `wechat-vscode.logLevel` setting (default: INFO).
  */
 export class ExtensionLogger {
   private outputChannel: vscode.OutputChannel;
+  private level: LogLevel;
 
   constructor(outputChannel: vscode.OutputChannel) {
     this.outputChannel = outputChannel;
+    this.level = this.readLogLevel();
+  }
+
+  private readLogLevel(): LogLevel {
+    const val = vscode.workspace
+      .getConfiguration('wechat-vscode')
+      .get<string>('logLevel', 'INFO')
+      .toUpperCase();
+    if (val in LOG_LEVEL_PRIORITY) {
+      return val as LogLevel;
+    }
+    return 'INFO';
+  }
+
+  private shouldLog(level: LogLevel): boolean {
+    return LOG_LEVEL_PRIORITY[level] >= LOG_LEVEL_PRIORITY[this.level];
+  }
+
+  setLevel(level: LogLevel): void {
+    this.level = level;
   }
 
   private log(level: string, message: string, data?: unknown): void {
+    if (!this.shouldLog(level as LogLevel)) { return; }
     const timestamp = new Date().toISOString();
     const parts = [timestamp, level, message];
     if (data !== undefined) {
