@@ -1,3 +1,6 @@
+
+**[中文文档](README_CN.md)**
+
 # Code Claw: AI Coding Power in Your Pocket
 
 > Control Claude Code in your VSCode workspace from WeChat via ClawBot
@@ -173,5 +176,3 @@ MIT
 Part of the WeChat ClawBot integration code was inspired by [wechat-claude-code](https://github.com/Wechat-ggGitHub/wechat-claude-code) (MIT License).
 
 ---
-
-**[中文文档](README_CN.md)**
