@@ -67,14 +67,14 @@ npm install
 > 📖 详细的分步指南请查看 [快速开始指南](docs/quick_start_cn.md)。
 
 1. **打开项目** — 在 VSCode 中打开一个项目文件夹（工作目录）
-2. **连接微信** — 点击左侧 Activity Bar 的Code Claw图标(![](./icon.svg))，扫描二维码绑定
+2. **连接微信** — 点击左侧 Activity Bar 的 Code Claw 图标，扫描二维码绑定
 3. **开始使用** — 绑定成功后，在微信中发送消息即可操作项目
 
 > 💡 **已经在使用 Claude Code？** 如果你已安装 Claude Code 并正常使用，Code Claw 会自动读取，无需任何额外配置。安装 → 扫码 → 开始用。
 
 ### 打开面板
 
-点击 VSCode 左侧 Activity Bar 的Code Claw图标(![](./icon.svg)) |
+点击 VSCode 左侧 Activity Bar 的 Code Claw 图标 |
 
 ## ⚙️ 配置说明
 

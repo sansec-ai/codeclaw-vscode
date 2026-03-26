@@ -68,7 +68,7 @@ npm install
 > 📖 For a detailed step-by-step guide, see the [Quick Start Guide](docs/quick_start.md).
 
 1. **Open a project** — Open a project folder in VSCode (this becomes your working directory)
-2. **Connect WeChat** — Click the Code Claw icon in the Activity Bar (![](./icon.svg)), scan the QR code to bind
+2. **Connect WeChat** — Click the Code Claw icon in the Activity Bar, scan the QR code to bind
 3. **Start chatting** — Send messages from WeChat to operate your project
 
 > 💡 **Already using Claude Code?** If you already have Claude Code installed and working, Code Claw reads your configuration automatically — no extra setup needed. Just install, scan QR, and go.
