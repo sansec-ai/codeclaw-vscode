@@ -17,7 +17,7 @@ export interface AccountData {
   boundCwd?: string;
 }
 
-const ACCOUNTS_DIR = join(homedir(), '.wechat-claude-vscode', 'accounts');
+const ACCOUNTS_DIR = join(homedir(), '.codeclaw-vscode', 'accounts');
 
 function validateAccountId(accountId: string): void {
   if (!/^[a-zA-Z0-9_.@=-]+$/.test(accountId)) {

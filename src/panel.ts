@@ -10,6 +10,8 @@ export type ViewState = {
   showQr: boolean;
   showConnect: boolean;
   showDisconnect: boolean;
+  /** Label for the connect button; defaults to '🔗 连接微信' */
+  connectLabel?: string;
 };
 
 export const DISCONNECTED_STATE: ViewState = {
@@ -66,7 +68,7 @@ export class WeChatPanel {
 
     const panel = vscode.window.createWebviewPanel(
       WeChatPanel.VIEW_TYPE,
-      'WeChat Claude Code',
+      'Code Claw',
       column || vscode.ViewColumn.One,
       {
         enableScripts: true,
@@ -92,10 +94,10 @@ export class WeChatPanel {
       async (message) => {
         switch (message.command) {
           case 'connect':
-            vscode.commands.executeCommand('wechat-vscode.connect');
+            vscode.commands.executeCommand('codeClaw.connect');
             break;
           case 'disconnect':
-            vscode.commands.executeCommand('wechat-vscode.disconnect');
+            vscode.commands.executeCommand('codeClaw.disconnect');
             break;
         }
       },
@@ -151,7 +153,7 @@ export class WeChatPanel {
 // =========================================================================
 
 export class WeChatSidebarProvider implements vscode.WebviewViewProvider {
-  public static readonly viewType = 'wechatVscodeSidebar';
+  public static readonly viewType = 'codeClawVscodeSidebar';
   private _view?: vscode.WebviewView;
   private _state: ViewState = DISCONNECTED_STATE;
   private _stateVersion = 0;
@@ -242,7 +244,7 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src data: https:; style-src 'unsafe-inline'; script-src 'unsafe-inline';">
-  <title>WeChat Claude Code</title>
+  <title>Code Claw</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -290,7 +292,7 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion
   </style>
 </head>
 <body>
-  <div class="header"><h1>🦞 WeChat Claude Code</h1></div>
+  <div class="header"><h1>🦞 Code Claw</h1></div>
 
   <div class="status-bar">
     <span class="status-dot ${esc(state.dotClass)}"></span>
@@ -303,7 +305,7 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion
   </div>
 
   <div class="btn-row">
-    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">🔗 连接微信</button>
+    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">${esc(state.connectLabel || '🔗 连接微信')}</button>
     <button id="disconnectBtn" class="secondary" onclick="sendCmd('disconnect')" style="display:${state.showDisconnect ? '' : 'none'}">断开连接</button>
     <button id="rebindBtn" class="secondary" onclick="sendCmd('rebind')" style="display:${state.showDisconnect ? '' : 'none'}">重新绑定</button>
   </div>

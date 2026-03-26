@@ -12,7 +12,7 @@ const LOG_LEVEL_PRIORITY: Record<LogLevel, number> = {
 /**
  * Logger for the VSCode extension.
  * Uses the VSCode output channel instead of file-based logging.
- * Respects `wechat-vscode.logLevel` setting (default: INFO).
+ * Respects `codeClaw.logLevel` setting (default: INFO).
  */
 export class ExtensionLogger {
   private outputChannel: vscode.OutputChannel;
@@ -25,7 +25,7 @@ export class ExtensionLogger {
 
   private readLogLevel(): LogLevel {
     const val = vscode.workspace
-      .getConfiguration('wechat-vscode')
+      .getConfiguration('codeClaw')
       .get<string>('logLevel', 'INFO')
       .toUpperCase();
     if (val in LOG_LEVEL_PRIORITY) {

@@ -74,19 +74,25 @@ function readEnvVarArray(config: vscode.WorkspaceConfiguration, key: string): En
 
 /**
  * Build env for the Claude Code subprocess.
- * Priority: wechat-vscode > claudeCode > process.env
+ * Priority: codeClaw > claudeCode > process.env
  */
 function buildSubprocessEnv(): Record<string, string | undefined> {
   const env: Record<string, string> = { ...process.env as Record<string, string> };
 
-  // claudeCode.environmentVariables (fallback)
-  const claudeEnv = readEnvVarArray(vscode.workspace.getConfiguration('claudeCode'), 'environmentVariables');
-  for (const { name, value } of claudeEnv) { env[name] = value; }
+  // Use null scope to ensure settings are read correctly in SSH remote mode
+  const config = (section: string) => vscode.workspace.getConfiguration(section, null);
 
-  // wechat-vscode.environmentVariables (override)
-  const wechatEnv = readEnvVarArray(vscode.workspace.getConfiguration('wechat-vscode'), 'environmentVariables');
+  // claudeCode.environmentVariables (fallback)
+  const claudeEnv = readEnvVarArray(config('claudeCode'), 'environmentVariables');
+  for (const { name, value } of claudeEnv) { env[name] = value; }
+  if (claudeEnv.length > 0) {
+    logger.info('Using claudeCode.environmentVariables', { keys: claudeEnv.map((e) => e.name) });
+  }
+
+  // codeClaw.environmentVariables (override)
+  const wechatEnv = readEnvVarArray(config('codeClaw'), 'environmentVariables');
   if (wechatEnv.length > 0) {
-    logger.info('Using wechat-vscode.environmentVariables', { keys: wechatEnv.map((e) => e.name) });
+    logger.info('Using codeClaw.environmentVariables', { keys: wechatEnv.map((e) => e.name) });
   }
   for (const { name, value } of wechatEnv) { env[name] = value; }
 
@@ -106,7 +112,17 @@ function buildSubprocessEnv(): Record<string, string | undefined> {
       masked[k] = v || '(empty)';
     }
   }
-  logger.info('Claude Code subprocess env', { env: masked });
+  
+  // Filter to only show ANTHROPIC and CLAUDE prefixed variables
+  const filteredMasked: Record<string, string> = {};
+  for (const [k, v] of Object.entries(masked)) {
+    const upper = k.toUpperCase();
+    if (upper.startsWith('ANTHROPIC') || upper.startsWith('CLAUDE')) {
+      filteredMasked[k] = v;
+    }
+  }
+  
+  logger.info('Claude Code subprocess env', { env: JSON.stringify(filteredMasked).length > 200 ? `${JSON.stringify(filteredMasked).substring(0, 200)}...` : JSON.stringify(filteredMasked) });
 
   return env;
 }

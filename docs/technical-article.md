@@ -4,7 +4,7 @@
 
 你有没有过这样的时刻——通勤地铁上突然想到一个 bug 的修复方案，但手边只有手机；躺在床上不想开电脑，却想让 AI 帮你写一个新功能；或者在外出差，需要远程 review 一下代码改动？
 
-这就是 **WeChat Claude Code** 诞生的原因。它是一个 VSCode 扩展，把你的个人微信变成 Claude Code 的远程终端——手机发消息，电脑上的 Claude Code 帮你写代码。你不需要打开电脑，不需要 VPN，甚至不需要知道电脑在哪里——只要微信能发消息就行。
+这就是 **Code Claw** 诞生的原因。它是一个 VSCode 扩展，把你的个人微信变成 Claude Code 的远程终端——手机发消息，电脑上的 Claude Code 帮你写代码。你不需要打开电脑，不需要 VPN，甚至不需要知道电脑在哪里——只要微信能发消息就行。
 
 本文将深入介绍这个项目的技术实现，包括微信 ClawBot API 协议、Claude Agent SDK 集成、VSCode 扩展架构设计，以及开发过程中遇到的关键挑战和解决方案。
 
@@ -262,7 +262,7 @@ sdkOptions.pathToClaudeCodeExecutable = findClaudeCliPath();
 
 扩展入口负责三件事：
 
-1. **注册命令**：`wechat-vscode.connect`、`wechat-vscode.disconnect`、`wechat-vscode.showPanel`
+1. **注册命令**：`codeClaw.connect`、`codeClaw.disconnect`、`codeClaw.showPanel`
 2. **注册侧边栏**：通过 `registerWebviewViewProvider` 注册 WebView
 3. **自动重连**：激活时检查是否有已保存的账号凭证，有则自动启动 Daemon
 
@@ -421,9 +421,9 @@ function buildSubprocessEnv(): Record<string, string | undefined> {
     vscode.workspace.getConfiguration('claudeCode'), 'environmentVariables');
   for (const { name, value } of claudeEnv) { env[name] = value; }
 
-  // ③ 最高优先：wechat-vscode.environmentVariables（本插件配置）
+  // ③ 最高优先：codeClaw.environmentVariables（本插件配置）
   const wechatEnv = readEnvVarArray(
-    vscode.workspace.getConfiguration('wechat-vscode'), 'environmentVariables');
+    vscode.workspace.getConfiguration('codeClaw'), 'environmentVariables');
   for (const { name, value } of wechatEnv) { env[name] = value; }
 
   return env;
@@ -434,7 +434,7 @@ function buildSubprocessEnv(): Record<string, string | undefined> {
 
 ## 7. 总结与展望
 
-WeChat Claude Code 是一次有趣的尝试：把微信的官方 Bot API 和 Claude Code 的 AI 编码能力连接起来，创造了一个"手机远程编程"的体验。整个项目的技术栈简洁而高效：
+Code Claw 是一次有趣的尝试：把微信的官方 Bot API 和 Claude Code 的 AI 编码能力连接起来，创造了一个"手机远程编程"的体验。整个项目的技术栈简洁而高效：
 
 - **iLink Bot API** 提供了微信消息收发能力
 - **Claude Agent SDK** 提供了 AI 代码生成和执行能力
@@ -448,4 +448,4 @@ WeChat Claude Code 是一次有趣的尝试：把微信的官方 Bot API 和 Cla
 - **VSCode Marketplace 发布**：让更多用户方便地安装和使用
 - **图片理解**：利用 Claude 的多模态能力，支持发送截图让 AI 分析代码界面
 
-如果你也想让手机变成编程助手，欢迎试用 WeChat Claude Code。项目代码开源在 [Gitee](https://gitee.com/jiadx1/wechat-vscode)，欢迎 Star 和 PR。
+如果你也想让手机变成编程助手，欢迎试用 Code Claw。项目代码开源在 [Gitee](https://gitee.com/SansecAiLab/codeclaw-vscode)，欢迎 Star 和 PR。

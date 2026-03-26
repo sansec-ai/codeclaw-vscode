@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-#  WeChat Claude Code VSCode 扩展 — 一键打包脚本
+#  Code Claw VSCode 扩展 — 一键打包脚本
 #  用法:
 #    ./build.sh              # 标准打包（不含日志统计）
 #    ./build.sh --with-stats # 包含日志统计功能（从 .env 读取 URL）
@@ -56,7 +56,7 @@ log_ok "npm $(npm -v)"
 # ============================================================
 log_info "清理旧产物..."
 rm -rf out
-rm -f wechat-claude-vscode-*.vsix
+rm -f codeclaw-vscode-*.vsix
 log_ok "已清理 out/ 和 *.vsix"
 
 # ============================================================
@@ -186,10 +186,21 @@ fi
 # 9. 生成 VSIX
 # ============================================================
 log_info "生成 VSIX..."
-npx @vscode/vsce package --allow-missing-repository 2>&1
 
-VSIX_FILE=$(ls wechat-claude-vscode-*.vsix 2>/dev/null | head -1)
-if [ -z "$VSIX_FILE" ]; then
+# 根据是否启用统计决定文件名后缀
+if [ "$WITH_STATS" = true ]; then
+    # 如果启用了日志统计，则在文件名中添加"内部版"后缀
+    BASE_NAME=$(node -p "require('./package.json').name.replace('@', '').replace('/', '-')")
+    VERSION=$(node -p "require('./package.json').version")
+    VSIX_FILE="${BASE_NAME}-${VERSION}-内部版.vsix"
+    npx @vscode/vsce package --out "$VSIX_FILE" --allow-missing-repository 2>&1
+else
+    # 否则按默认方式生成
+    npx @vscode/vsce package --allow-missing-repository 2>&1
+    VSIX_FILE=$(ls codeclaw-vscode-*.vsix 2>/dev/null | head -1)
+fi
+
+if [ -z "$VSIX_FILE" ] || [ ! -f "$VSIX_FILE" ]; then
     log_error "VSIX 打包失败"
     exit 1
 fi
@@ -214,5 +225,5 @@ echo "    code --install-extension ${VSIX_FILE}"
 echo "    或 VSCode 中 Ctrl+Shift+P → Extensions: Install from VSIX..."
 echo ""
 echo -e "  ${CYAN}卸载方式:${NC}"
-echo "    code --uninstall-extension SansecAiLab.wechat-claude-vscode"
+echo "    code --uninstall-extension SansecAiLab.codeclaw-vscode"
 echo ""

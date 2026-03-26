@@ -1,4 +1,4 @@
-# WeChat Claude Code: AI Coding Power in Your Pocket
+# Code Claw: AI Coding Power in Your Pocket
 
 > Control Claude Code in your VSCode workspace from WeChat via ClawBot
 
@@ -6,13 +6,11 @@
 
 A VSCode extension that turns your personal WeChat into a remote control terminal for Claude Code — through WeChat's official **ClawBot** (iLink) API. Send a message from your phone, and Claude Code in VSCode writes code for you.
 
-### Why WeChat Claude Code?
+### Why Code Claw?
 
 - 🏛️ **Uses WeChat's official ClawBot (iLink) API** — no reverse engineering, no third-party WeChat clients
 - 📦 **Bundled Claude Code CLI** — zero external dependencies, install and go
 - 🔁 **Persistent sessions** — Claude remembers context across messages
-- ⚡ **Streaming support** — watch Claude's tool calls in real-time from your phone
-- 📋 **Checklist tracking** — when Claude uses TodoWrite, progress is automatically pushed to WeChat
 - 🔌 **Any Anthropic-compatible API** — works with OpenRouter, AWS Bedrock, custom endpoints
 
 ## ✨ Features
@@ -23,28 +21,26 @@ A VSCode extension that turns your personal WeChat into a remote control termina
 | 🔄 **Background Polling** | After binding, automatically long-polls for WeChat messages in the background |
 | 💬 **WeChat → Claude** | Send text/images from WeChat; Claude Code processes the request in your current workspace |
 | 🔁 **Continuous Sessions** | Maintains context across conversations; Claude remembers previous operations. Send `/new` to start fresh |
-| ⚡ **Streaming Output** | Tool calls and intermediate results pushed to WeChat in real-time (toggleable) |
-| 📋 **Checklist Tracking** | When Claude uses TodoWrite, task progress is automatically pushed to WeChat with a progress bar |
+| 📋 **Todolist Tracking** | When Claude uses TodoWrite, task progress is automatically pushed to WeChat with a progress bar |
 | 🛡️ **Permission Detection** | Automatically detects tool permission denials and prompts user to switch `/mode` |
 | 📊 **Status Bar** | VSCode bottom status bar shows real-time connection state (disconnected/connecting/connected/processing/error) |
-| 🗂️ **Sidebar Panel** | WeChat icon in Activity Bar; click to expand panel with QR code, status, and operation logs |
-| 📝 **Slash Commands** | Session management: `/help`, `/new`, `/cwd`, `/model`, `/mode`, `/stream`, `/status` |
-| 💾 **Session Persistence** | Session data saved in `~/.wechat-claude-code/`; auto-reconnects on VSCode restart |
-| 📦 **Zero External Dependencies** | Claude Code CLI bundled inside the extension — no separate installation needed |
+| 🗂️ **Sidebar Panel** | Code Claw icon in Activity Bar; click to expand panel with QR code, status, and operation logs |
+| 📝 **Slash Commands** | Session management: `/help`, `/new`, `/model`, `/mode`, `/status` |
+| 💾 **Session Persistence** | Session data saved in `~/.codeclaw-vscode/`; auto-reconnects on VSCode restart; disconnect preserves account for quick reconnect |
+| 🔄 **Multi-Project Support** | WeChat account works with any VSCode project — just click "Reconnect" to switch |
 
 ## 🚀 Quick Start
 
 ### Prerequisites
 
 - **VSCode** >= 1.85.0
-- **Personal WeChat account** with ClawBot support (iOS WeChat, currently in beta)
-- **Anthropic API key** (or compatible provider)
+- **Personal WeChat account** with ClawBot support
 
 ### Installation
 
 #### From VSIX (recommended)
 
-1. Get the `wechat-claude-vscode-0.1.77.vsix` file
+1. Get the `codeclaw-vscode-0.1.77.vsix` file
 2. In VSCode, press `Ctrl+Shift+P` (macOS: `Cmd+Shift+P`)
 3. Type `Extensions: Install from VSIX...`
 4. Select the `.vsix` file
@@ -52,13 +48,13 @@ A VSCode extension that turns your personal WeChat into a remote control termina
 
 #### From VSCode Marketplace (after publishing)
 
-Search for **"WeChat Claude Code"** in the Extensions view and click Install.
+Search for **"Code Claw"** in the Extensions view and click Install.
 
 #### From Source
 
 ```bash
-git clone https://github.com/SansecAiLab/wechat-claude-vscode.git
-cd wechat-claude-vscode
+git clone https://github.com/sansec-ai/codeclaw-vscode.git
+cd codeclaw-vscode
 npm install
 ./build.sh
 # Then install the generated .vsix file
@@ -69,44 +65,31 @@ npm install
 > 📖 For a detailed step-by-step guide, see the [Quick Start Guide](docs/quick_start.md).
 
 1. **Open a project** — Open a project folder in VSCode (this becomes your working directory)
-2. **Configure API credentials** — Set up your API key in VSCode Settings (see Configuration below)
-3. **Click the WeChat icon** — In the Activity Bar (left sidebar), click the WeChat icon
-4. **Scan QR code** — Use WeChat to scan the QR code displayed in the panel
-5. **Send messages** — Start chatting with Claude Code from WeChat!
+2. **Connect WeChat** — Click the Code Claw icon in the Activity Bar (![](./icon.svg)), scan the QR code to bind
+3. **Start chatting** — Send messages from WeChat to operate your project
+
+> 💡 **Already using Claude Code?** If you already have Claude Code installed and working, Code Claw reads your configuration automatically — no extra setup needed. Just install, scan QR, and go.
 
 ### Three Ways to Open the Panel
 
 | Method | Action |
 |--------|--------|
-| 🖱️ **Sidebar** | Click the WeChat icon in the VSCode Activity Bar |
+| 🖱️ **Sidebar** | Click the Code Claw icon in the VSCode Activity Bar |
 | ⌨️ **Command Palette** | `Ctrl+Shift+P` → type `WeChat` → select a command |
 | 📊 **Status Bar** | Click the `WeChat: Disconnected/Connected` indicator at the bottom |
 
 ## ⚙️ Configuration
 
-### Settings Reference
+### Environment Variables
 
-| Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `wechat-vscode.logLevel` | enum | `INFO` | Extension log level: `DEBUG` / `INFO` / `WARN` / `ERROR` |
-| `wechat-vscode.streaming` | boolean | `true` | Push Claude Code intermediate output to WeChat in real-time |
-| `wechat-vscode.environmentVariables` | array | `[]` | Environment variables passed to the Claude Code CLI |
-
-Configure in VSCode `settings.json`:
+If you're not using Claude Code already, configure your API credentials in VSCode `settings.json`:
 
 ```jsonc
 {
-  // Log level (DEBUG / INFO / WARN / ERROR)
-  "wechat-vscode.logLevel": "INFO",
-
-  // Streaming: true = real-time intermediate output to WeChat, false = final result only
-  "wechat-vscode.streaming": true,
-
-  // Claude Code API configuration
-  "wechat-vscode.environmentVariables": [
-    { "name": "ANTHROPIC_BASE_URL", "value": "https://api.anthropic.com" },
-    { "name": "ANTHROPIC_AUTH_TOKEN", "value": "your-api-key-here" },
-    { "name": "ANTHROPIC_MODEL", "value": "claude-sonnet-4-6" }
+  "codeClaw.environmentVariables": [
+    { "name": "ANTHROPIC_BASE_URL", "value": "<Model API Endpoint>" },
+    { "name": "ANTHROPIC_AUTH_TOKEN", "value": "<your-api-token-here>" },
+    { "name": "ANTHROPIC_MODEL", "value": "<model-name>" }
   ]
 }
 ```
@@ -114,14 +97,12 @@ Configure in VSCode `settings.json`:
 ### Environment Variable Loading Priority
 
 ```
-① wechat-vscode.environmentVariables (this extension's config, highest priority)
+① codeClaw.environmentVariables (this extension's config, highest priority)
      ↓ Variables not configured fall back to
 ② claudeCode.environmentVariables (Claude Code extension config, for compatibility)
      ↓ Variables not configured fall back to
 ③ System environment variables (process.env)
 ```
-
-> **Zero-config compatibility**: If you already have the Claude Code extension with `claudeCode.environmentVariables` configured, this extension reads it automatically — no need to duplicate settings.
 
 ## 💬 Commands (Slash Commands)
 
@@ -129,39 +110,24 @@ Configure in VSCode `settings.json`:
 |---------|-------------|---------|
 | `/help` | Show help information | `/help` |
 | `/new` | Start a new session (clear context) | `/new` |
-| `/cwd <path>` | Change working directory | `/cwd /home/user/project` |
 | `/model <name>` | Switch Claude model | `/model claude-sonnet-4-6` |
 | `/mode <mode>` | Switch permission mode (name or number) | `/mode 2` |
-| `/stream` | Toggle streaming mode | `/stream` |
 | `/status` | View current session status | `/status` |
 
 Type any text to chat with Claude Code — Claude will operate on your current VSCode project directory.
 
 ### Permission Modes
 
-| Mode | Description |
-|------|-------------|
-| `plan` | Plan only, no execution |
-| `default` | Default — prompt for confirmation on dangerous operations |
-| `acceptEdits` | Auto-accept file edits |
-| `bypassPermissions` | Skip all permission checks |
+| Mode | Description | Shortcut |
+|------|-------------|----------|
+| `plan` | Plan only, no execution | `0` |
+| `default` | Default — prompt for confirmation on dangerous operations | `1` |
+| `acceptEdits` | Auto-accept file edits | `2` |
+| `bypassPermissions` | Skip all permission checks | `3+` |
 
-**Number shortcuts for `/mode`:**
+### TodoList Tracking
 
-| Shortcut | Mode |
-|----------|------|
-| `0` | `plan` |
-| `1` | `default` |
-| `2` | `acceptEdits` |
-| `3+` | `bypassPermissions` |
-
-## ⚡ Streaming Output
-
-When streaming is enabled (default), Claude Code's intermediate tool calls are logged to the VSCode Output Channel (`View → Output → WeChat Claude Code`). Only the **final result** is sent to WeChat as a single message.
-
-### Checklist Tracking
-
-When Claude uses the `TodoWrite` tool during processing, the extension automatically detects checklist changes and pushes progress updates to WeChat:
+When Claude uses the `TodoWrite` tool during processing, the extension automatically detects todolist changes and pushes progress updates to WeChat:
 
 ```
 📋 任务进度 60%
@@ -173,11 +139,6 @@ When Claude uses the `TodoWrite` tool during processing, the extension automatic
 ⬜ Run test suite
 ⬜ Clean up temp files
 ```
-
-- Updates are **batched** to respect WeChat's ~10 message limit per context
-- At most **9 progress updates** are sent, always **reserving the last slot** for the final result
-- The final 100% completed state is always pushed
-- Works with any model that supports the TodoWrite tool
 
 ### Permission Denial Detection
 
@@ -195,170 +156,21 @@ When Claude requests tool permissions that are denied (e.g., in `default` or `pl
   /mode 3  (跳过所有权限检查)
 ```
 
-## 🏗️ How It Works
-
-```
-┌─────────────┐     iLink Bot API       ┌────────────────────────────┐
-│  WeChat      │ ◄────────────────────► │      VSCode Extension      │
-│  (Phone)     │     Long-poll + Send    │                            │
-└─────────────┘                        │  ┌──────────────────────┐  │
-                                       │  │ Claude Agent SDK      │  │
-                                       │  │  (bundled, no install)│  │
-                                       │  └──────────┬───────────┘  │
-                                       │             │ spawn        │
-                                       │  ┌──────────▼───────────┐  │
-                                       │  │ claude-code/cli.js    │  │
-                                       │  │ (bundled, operates    │  │
-                                       │  │  on workspace dir)    │  │
-                                       │  └──────────────────────┘  │
-                                       └────────────────────────────┘
-```
-
-1. **QR Binding** — Calls the WeChat iLink Bot API to generate a QR code; user scans to obtain a bot token
-2. **Message Polling** — Background long-polling receives WeChat messages, with deduplication and auto-reconnect
-3. **Claude Processing** — Invokes the bundled Claude Code CLI via `@anthropic-ai/claude-agent-sdk`, supporting continuous sessions (resume)
-4. **Streaming Output** — When enabled, tool calls and intermediate results are pushed to WeChat in real-time
-5. **Result Reply** — Claude's response is formatted as WeChat-friendly plain text and sent back
-
-### Bundled Claude Code CLI
-
-The extension bundles the Claude Code CLI (`cli.js` from `@anthropic-ai/claude-agent-sdk`) inside the `.vsix`. No separate installation is needed. The CLI version stays in sync with the SDK (currently 0.1.77).
-
-## Architecture
-
-```
-WeChat (Phone)  ←→  iLink Bot API  ←→  VSCode Extension  ←→  Claude Agent SDK (bundled)
-```
-
-- **Extension Entry** (`extension.ts`): `activate`/`deactivate`, command registration, message routing
-- **Daemon** (`monitor.ts`): Long-poll loop with deduplication and backoff
-- **Message Handler** (`extension.ts`): Dispatches user messages to Claude or slash command handlers
-- **Claude Provider** (`claude/provider.ts`): Wraps `@anthropic-ai/claude-agent-sdk` with streaming support
-- **WeChat Sender** (`wechat/send.ts`): Sends formatted replies back to WeChat
-
-## 📂 Project Structure
-
-```
-wechat-claude-vscode/
-├── package.json              # VSCode extension manifest (commands, sidebar, menus, settings)
-├── tsconfig.json             # TypeScript config (CommonJS)
-├── icon.svg                  # Activity Bar icon
-├── build.sh                  # One-click build script (env check → compile → package → VSIX)
-├── .vscodeignore             # VSIX packaging exclusion rules
-├── LICENSE                   # MIT License
-├── README.md                 # English documentation (default)
-├── README_CN.md              # Chinese documentation
-├── docs/
-│   ├── quick_start.md        # English quick start guide
-│   ├── quick_start_cn.md     # Chinese quick start guide
-│   └── technical-article.md  # Technical deep-dive article (Chinese)
-├── tests/                    # Unit & integration tests
-├── src/
-│   ├── extension.ts          # Extension entry (activate/deactivate, command registration, message handling)
-│   ├── panel.ts              # WebView Panel + sidebar WebviewViewProvider
-│   ├── statusbar.ts          # Bottom status bar management
-│   ├── logger.ts             # Logging (DEBUG/INFO/WARN/ERROR level filtering)
-│   ├── session.ts            # Session persistence (~/.wechat-claude-code/sessions/)
-│   ├── config.ts             # Configuration management
-│   ├── permission.ts         # Permission approval management
-│   ├── store.ts              # JSON file read/write utilities
-│   ├── constants.ts          # Constants
-│   ├── stats.ts              # Usage stats reporting (fire-and-forget)
-│   ├── stats-config.ts       # Stats URL config (auto-generated by build.sh)
-│   ├── wechat/               # WeChat communication module
-│   │   ├── api.ts            # WeChat iLink Bot API wrapper
-│   │   ├── login.ts          # QR code login
-│   │   ├── monitor.ts        # Message long-poll monitor (dedup + auto-reconnect)
-│   │   ├── send.ts           # Message sending (with throttle)
-│   │   ├── accounts.ts       # Account credential management
-│   │   ├── types.ts          # Protocol type definitions
-│   │   ├── media.ts          # Image/text message parsing
-│   │   ├── cdn.ts            # WeChat CDN media download
-│   │   ├── crypto.ts         # AES encryption/decryption
-│   │   └── sync-buf.ts       # Message polling sync buffer
-│   └── claude/
-│       ├── provider.ts       # Claude Agent SDK integration (streaming, dedup, Markdown → plain text)
-│       └── checklist-tracker.ts # TodoWrite progress tracking with batched WeChat updates
-└── out/
-    ├── extension.js          # Compiled extension code (esbuild bundle)
-    └── claude-code/
-        └── cli.js            # Bundled Claude Code CLI (~11MB)
-```
-
-## 🔧 Development
-
-### Local Development
-
-```bash
-git clone https://gitee.com/jiadx1/wechat-vscode.git
-cd wechat-vscode
-npm install
-npm run watch          # Watch mode compilation
-# Press F5 in VSCode to launch Extension Development Host for debugging
-```
-
-### Key Commands
-
-```bash
-npm run compile        # Compile TypeScript
-npm run esbuild        # esbuild dev build (with sourcemaps)
-npm run watch          # Watch mode compilation
-npm run test:fast      # Run mock unit tests only (fast)
-npm test               # Run all tests (including real SDK integration tests)
-npm run package        # Generate .vsix
-./build.sh             # One-click build (recommended, includes full checks)
-./build.sh --with-stats # Build with stats reporting enabled
-```
-
-## 📦 Build & Deploy
-
-### Standard Build (without stats reporting)
-
-```bash
-./build.sh
-# Generates wechat-claude-vscode-0.1.77.vsix
-```
-
-### Build with Stats Reporting
-
-```bash
-./build.sh --with-stats
-# Reads STATS_URL from .env and bakes it into the extension
-```
-
-The script automatically runs: env check → clean old artifacts → install deps → file check → TypeScript type check → generate stats config → esbuild bundle → copy Claude Code CLI → verify → generate VSIX.
-
-Install:
-```bash
-code --install-extension wechat-vscode-0.1.77.vsix
-# Or via VSCode Command Palette: Ctrl+Shift+P → Extensions: Install from VSIX...
-```
-
-Uninstall:
-```bash
-code --uninstall-extension SansecAiLab.wechat-claude-vscode
-```
-
-## 📂 Data Directory
-
-```
-~/.wechat-claude-code/
-├── accounts/       # WeChat account credentials (bot token, etc.)
-├── sessions/       # Session data (SDK session ID, working directory, model settings)
-└── get_updates_buf # Message polling sync buffer
-```
-
 ## ⚠️ Notes
 
-- Requires an Anthropic API key (`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`)
-- Supports custom API endpoints (`ANTHROPIC_BASE_URL`) for third-party API proxies
 - WeChat iLink Bot API depends on network connectivity to `ilinkai.weixin.qq.com`
-- Sessions expire after some time — re-scan QR code to rebind
+- Sessions expire after some time — click "重新绑定" to re-scan QR code
+- **Disconnect preserves account**: clicking "断开连接" stops the daemon but keeps credentials; click "重新连接" to resume instantly
+- **Switch projects freely**: your WeChat account is not locked to one project directory
 - WeChat does not render Markdown — the extension automatically converts Markdown to plain text
 
 ## 📄 License
 
 MIT
+
+## 🙏 Acknowledgements
+
+Part of the WeChat ClawBot integration code was inspired by [wechat-claude-code](https://github.com/Wechat-ggGitHub/wechat-claude-code) (MIT License).
 
 ---
 

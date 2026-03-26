@@ -1,21 +1,21 @@
 {
-  "name": "wechat-claude-vscode",
-  "displayName": "WeChat Claude Code",
+  "name": "codeclaw-vscode",
+  "displayName": "Code Claw",
   "description": "Control Claude Code in VSCode via WeChat ClawBot — chat with Claude from your phone",
   "version": "0.1.77",
   "publisher": "SansecAiLab",
   "icon": "icon.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/SansecAiLab/wechat-claude-vscode"
+    "url": "https://github.com/sansec-ai/codeclaw-vscode.git"
   },
   "engines": {
     "vscode": "^1.85.0"
   },
   "activationEvents": [
-    "onCommand:wechat-vscode.connect",
-    "onCommand:wechat-vscode.disconnect",
-    "onCommand:wechat-vscode.showPanel",
+    "onCommand:codeClaw.connect",
+    "onCommand:codeClaw.disconnect",
+    "onCommand:codeClaw.showPanel",
     "onView:wechatVscodeSidebar"
   ],
   "main": "./out/extension.js",
@@ -42,27 +42,24 @@
     "typescript": "^5.7.0"
   },
   "categories": [
-    "Other",
-    "Programming Languages",
-    "Machine Learning"
+    "AI",
+    "Chat",
+    "Programming Languages"
   ],
   "keywords": [
     "wechat",
     "claude",
     "claude-code",
-    "bridge",
-    "chat",
     "clawbot",
-    "ilink",
-    "wechat-bot",
+    "openclaw",
     "ai-coding",
     "remote-coding"
   ],
   "contributes": {
     "configuration": {
-      "title": "WeChat Claude Code",
+      "title": "Code Claw",
       "properties": {
-        "wechat-vscode.environmentVariables": {
+        "codeClaw.environmentVariables": {
           "type": "array",
           "items": {
             "type": "object",
@@ -85,7 +82,7 @@
           "description": "传递给 Claude CLI 的环境变量，格式与 claudeCode.environmentVariables 相同。配置了哪些就加载哪些，未配置的变量会自动从 claudeCode.environmentVariables 回退读取。",
           "order": 2
         },
-        "wechat-vscode.logLevel": {
+        "codeClaw.logLevel": {
           "type": "string",
           "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
           "enumDescriptions": {
@@ -98,7 +95,7 @@
           "description": "插件日志级别，控制输出通道中的日志详细程度。",
           "order": 1
         },
-        "wechat-vscode.streaming": {
+        "codeClaw.streaming": {
           "type": "boolean",
           "default": true,
           "description": "是否将 Claude Code 的中间过程（工具调用、思考等）实时发送到微信。关闭后仅发送最终结果。",
@@ -109,36 +106,36 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "wechat-vscode-sidebar",
+          "id": "codeClaw-sidebar",
           "title": "WeChat",
           "icon": "icon.svg"
         }
       ]
     },
     "views": {
-      "wechat-vscode-sidebar": [
+      "codeClaw-sidebar": [
         {
           "type": "webview",
-          "id": "wechatVscodeSidebar",
-          "name": "WeChat Claude Code"
+          "id": "codeClawVscodeSidebar",
+          "name": "Code Claw"
         }
       ]
     },
     "commands": [
       {
-        "command": "wechat-vscode.connect",
+        "command": "codeClaw.connect",
         "title": "连接微信",
         "category": "WeChat",
         "icon": "$(plug)"
       },
       {
-        "command": "wechat-vscode.disconnect",
+        "command": "codeClaw.disconnect",
         "title": "断开连接",
         "category": "WeChat",
         "icon": "$(debug-disconnect)"
       },
       {
-        "command": "wechat-vscode.showPanel",
+        "command": "codeClaw.showPanel",
         "title": "显示面板",
         "category": "WeChat"
       }
@@ -146,14 +143,16 @@
     "menus": {
       "view/title": [
         {
-          "command": "wechat-vscode.connect",
+          "command": "codeClaw.connect",
           "when": "view == wechatVscodeSidebar",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(plug)"
         },
         {
-          "command": "wechat-vscode.disconnect",
+          "command": "codeClaw.disconnect",
           "when": "view == wechatVscodeSidebar",
-          "group": "navigation"
+          "group": "navigation",
+          "icon": "$(debug-disconnect)"
         }
       ]
     }

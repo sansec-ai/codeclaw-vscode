@@ -20,7 +20,7 @@ export class StatusBarManager implements vscode.Disposable {
       vscode.StatusBarAlignment.Right,
       100,
     );
-    this.statusBarItem.command = 'wechat-vscode.showPanel';
+    this.statusBarItem.command = 'codeClaw.showPanel';
     this.applyStatus(this.currentStatus);
     this.statusBarItem.show();
   }

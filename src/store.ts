@@ -32,7 +32,7 @@ export function saveJson(filePath: string, data: unknown): void {
 
 // ========== Instance Lock (prevents multiple VSCode instances from running the same daemon) ==========
 
-const LOCK_DIR = join(tmpdir(), 'wechat-claude-vscode-locks');
+const LOCK_DIR = join(tmpdir(), 'codeClaw-locks');
 
 export interface LockHandle {
   /** Unique lock file path for this account */

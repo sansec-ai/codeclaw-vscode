@@ -36,6 +36,8 @@ const { ChecklistTracker } = require('../out/claude/checklist-tracker');
  * Integration test: call Claude Agent SDK directly with a prompt that
  * forces TodoWrite usage, and verify ChecklistTracker captures updates.
  */
+const hasApiConfig = !!(process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN);
+const hasCli = fs.existsSync(claudePath);
 const shouldSkip = skipSlow || !hasApiConfig || !hasCli;
 
 describe('ChecklistTracker integration (real SDK)', { skip: shouldSkip ? 'No API config or CLI, or SKIP_SLOW_TESTS=1' : false }, () => {

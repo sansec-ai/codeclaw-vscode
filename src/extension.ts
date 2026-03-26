@@ -3,7 +3,7 @@ import { initLogger, logger } from './logger';
 import { WeChatPanel, WeChatSidebarProvider, DISCONNECTED_STATE, connectedState, processingState, type ViewState } from './panel';
 import { StatusBarManager } from './statusbar';
 import { WeChatApi } from './wechat/api';
-import { loadLatestAccount, saveAccount, deleteAccount, type AccountData } from './wechat/accounts';
+import { loadLatestAccount, saveAccount, type AccountData } from './wechat/accounts';
 import { startQrLogin, waitForQrScan } from './wechat/login';
 import { createMonitor, type MonitorCallbacks } from './wechat/monitor';
 import { createSender } from './wechat/send';
@@ -50,7 +50,6 @@ const HELP_TEXT = [
   '',
   '  /help             显示帮助',
   '  /new              开启新会话',
-  '  /cwd <路径>       切换工作目录',
   '  /model <名称>     切换 Claude 模型',
   '  /mode <模式>      切换权限模式 (default/acceptEdits/plan)',
   '  /status           查看当前会话状态',
@@ -62,7 +61,7 @@ const HELP_TEXT = [
 
 export async function activate(ctx: vscode.ExtensionContext) {
   extContext = ctx;
-  outputChannel = vscode.window.createOutputChannel('WeChat Claude Code');
+  outputChannel = vscode.window.createOutputChannel('Code Claw');
   ctx.subscriptions.push(outputChannel);
   initLogger(outputChannel);
 
@@ -80,9 +79,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
   );
 
   ctx.subscriptions.push(
-    vscode.commands.registerCommand('wechat-vscode.connect', () => handleConnect()),
-    vscode.commands.registerCommand('wechat-vscode.disconnect', () => handleDisconnect()),
-    vscode.commands.registerCommand('wechat-vscode.showPanel', () => showOrCreatePanel()),
+    vscode.commands.registerCommand('codeClaw.connect', () => handleConnect()),
+    vscode.commands.registerCommand('codeClaw.disconnect', () => handleDisconnect()),
+    vscode.commands.registerCommand('codeClaw.showPanel', () => showOrCreatePanel()),
   );
 
   logger.info('WeChat VSCode extension activated');
@@ -94,20 +93,10 @@ export async function activate(ctx: vscode.ExtensionContext) {
     if (!cwd) {
       logger.info('No workspace open, skipping auto-reconnect');
       statusBar.setStatus('disconnected');
-    } else if (account.boundCwd && account.boundCwd !== cwd) {
-      // Bound to a different project directory — don't connect
-      logger.info('Workspace mismatch, skipping auto-reconnect', {
-        boundCwd: account.boundCwd,
-        currentCwd: cwd,
-      });
-      statusBar.setStatus('disconnected');
       setUiState({
         ...DISCONNECTED_STATE,
-        status: `⚠️ 微信已绑定到其他项目: ${account.boundCwd}`,
-        dotClass: 'disconnected',
-        showConnect: false,
-        showDisconnect: true,
-        showQr: false,
+        status: '请打开项目文件夹后重新连接',
+        connectLabel: '🔄 重新连接',
       });
     } else {
       // Workspace matches (or no boundCwd recorded) — auto-connect
@@ -125,6 +114,12 @@ export async function activate(ctx: vscode.ExtensionContext) {
         });
       } else {
         currentLock = lock;
+        // Update boundCwd to current workspace if it changed
+        if (account.boundCwd !== cwd) {
+          account.boundCwd = cwd;
+          saveAccount(account);
+          logger.info('Auto-reconnect: updated boundCwd', { accountId: account.accountId, newCwd: cwd });
+        }
         startDaemon(account, cwd);
         logger.info('Auto-reconnected on activation', { accountId: account.accountId });
       }
@@ -202,13 +197,6 @@ async function handleConnect(): Promise<void> {
       vscode.window.showInformationMessage('微信已连接，无需重复连接。');
       return;
     }
-    // Check workspace match
-    if (existingAccount.boundCwd && existingAccount.boundCwd !== cwd) {
-      vscode.window.showWarningMessage(
-        `⚠️ 微信已绑定到其他项目目录:\n${existingAccount.boundCwd}\n\n请在该项目中使用微信，或点击"重新绑定"。`
-      );
-      return;
-    }
     // Try to acquire instance lock
     const lock = acquireInstanceLock(existingAccount.accountId);
     if (!lock) {
@@ -216,6 +204,12 @@ async function handleConnect(): Promise<void> {
       return;
     }
     currentLock = lock;
+    // Update boundCwd to current workspace if it changed
+    if (existingAccount.boundCwd !== cwd) {
+      existingAccount.boundCwd = cwd;
+      saveAccount(existingAccount);
+      logger.info('Updated boundCwd', { accountId: existingAccount.accountId, newCwd: cwd });
+    }
     startDaemon(existingAccount, cwd);
     vscode.window.showInformationMessage('微信已连接！');
     return;
@@ -225,7 +219,7 @@ async function handleConnect(): Promise<void> {
   await doQrBind();
 }
 
-/** Disconnect but keep account data for next quick-connect. */
+/** Disconnect: stop daemon but keep account data for quick reconnect. */
 function handleDisconnect(): void {
   // Cancel any pending QR bind flow
   if (qrBindAbort) {
@@ -233,21 +227,20 @@ function handleDisconnect(): void {
     qrBindAbort = null;
   }
 
-  const accountId = currentAccount?.accountId;
   stopDaemon();
   // Release instance lock
   if (currentLock) {
     releaseInstanceLock(currentLock);
     currentLock = null;
   }
-  // Delete saved account so next "Connect" requires rebind
-  if (accountId) {
-    deleteAccount(accountId);
-  }
-  setUiState(DISCONNECTED_STATE);
+  setUiState({
+    ...DISCONNECTED_STATE,
+    status: '已断开连接',
+    connectLabel: '🔄 重新连接',
+  });
   statusBar.setStatus('disconnected');
-  vscode.window.showInformationMessage('微信已断开连接，绑定已取消。下次点击"连接微信"需要重新扫码绑定。');
-  logger.info('Disconnected by user, account deleted', { accountId });
+  vscode.window.showInformationMessage('微信已断开连接。点击"重新连接"可快速恢复。');
+  logger.info('Disconnected by user, account preserved');
 }
 
 /** Disconnect and rebind with new QR code. */
@@ -573,7 +566,7 @@ async function handleMessage(
 
     // Read streaming config
     const streaming = vscode.workspace
-      .getConfiguration('wechat-vscode')
+      .getConfiguration('codeClaw')
       .get<boolean>('streaming', true);
 
     session.state = 'processing';
@@ -630,8 +623,15 @@ async function handleMessage(
       }
 
       if (result.error) {
-        logger.error('Claude query error', { error: result.error });
-        await sender.sendText(fromUserId, contextToken, '⚠️ Claude 处理请求时出错:\n' + result.error);
+        let errorMessage = '⚠️ Claude 处理请求时出错:\n' + result.error;        
+        // 如果错误的同时也有文本内容，则附加显示
+        if (result.text) {
+          const finalText = plainText(result.text);
+          errorMessage += '\n' + finalText;
+        }
+        logger.error('Claude query error', { error: errorMessage });
+        
+        await sender.sendText(fromUserId, contextToken, errorMessage);
       } else if (result.text) {
         // Send the full result as a single message, no splitting
         const finalText = plainText(result.text);
