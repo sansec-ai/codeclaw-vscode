@@ -1,9 +1,9 @@
 {
   "name": "codeclaw-vscode",
-  "displayName": "Code Claw",
-  "description": "Control Claude Code in VSCode via WeChat ClawBot — chat with Claude from your phone",
+  "displayName": "Code Claw - OpenClaw VSCode",
+  "description": "Turn WeChat into a remote Claude Code terminal. Chat with AI from your phone via ClawBot. Part of the OpenClaw ecosystem.",
   "version": "0.1.77",
-  "publisher": "SansecAiLab",
+  "publisher": "Sansec",
   "icon": "icon.png",
   "repository": {
     "type": "git",
@@ -47,13 +47,16 @@
     "Programming Languages"
   ],
   "keywords": [
+    "openclaw",
     "wechat",
     "claude",
     "claude-code",
     "clawbot",
-    "openclaw",
     "ai-coding",
-    "remote-coding"
+    "remote-coding",
+    "mobile-coding",
+    "phone-coding",
+    "vscode-extension"
   ],
   "contributes": {
     "configuration": {
