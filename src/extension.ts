@@ -637,7 +637,7 @@ async function handleMessage(
         let finalText = plainText(result.text);
         const MAX_WECHAT_LENGTH = 1500;
         if (finalText.length > MAX_WECHAT_LENGTH) {
-          finalText = `**由于微信消息限制，以下是部分内容，完整内容请到VSCode查看**\n\n${finalText.slice(0, MAX_WECHAT_LENGTH)}`;
+          finalText = `⚠️ 由于微信消息限制，以下是部分内容，完整内容请到VSCode查看。 \n\n${finalText.slice(0, MAX_WECHAT_LENGTH)}`;
         }
         await sender.sendText(fromUserId, contextToken, finalText);
 
