@@ -51,12 +51,23 @@ export function createWeChatChannel(account: AccountData): Channel {
     start(callbacks: ChannelCallbacks): void {
       const monitorCallbacks: MonitorCallbacks = {
         onMessage: async (msg: WeixinMessage) => {
+          logger.info('WeChat raw message received', {
+            messageId: msg.message_id,
+            messageType: msg.message_type,
+            fromUserId: msg.from_user_id,
+            itemCount: msg.item_list?.length ?? 0,
+            hasContextToken: !!msg.context_token,
+          });
           const channelMsg = toChannelMessage(msg);
           if (channelMsg) {
+            logger.info('Channel message forwarded', { id: channelMsg.id, textLength: channelMsg.text.length });
             await callbacks.onMessage(channelMsg);
+          } else {
+            logger.debug('Message filtered by toChannelMessage', { messageType: msg.message_type, fromUserId: msg.from_user_id });
           }
         },
         onSessionExpired: () => {
+          logger.warn('WeChat session expired');
           callbacks.onSessionExpired();
         },
       };

@@ -3,3 +3,7 @@ out/
 *.vsix
 .env
 src/stats-config.ts
+.vscode-test
+.claude
+.clawhub
+.openclaw

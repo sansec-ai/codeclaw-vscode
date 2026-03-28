@@ -15,6 +15,8 @@ import { reportPrompt } from './stats';
 import { acquireInstanceLock, releaseInstanceLock } from './store';
 import type { LockHandle } from './store';
 import { createWeChatChannel } from './channels/wechat-adapter';
+import { createTelegramChannel } from './channels/telegram-adapter';
+import { TelegramApi } from './channels/telegram-api';
 import type { Channel, ChannelMessage, ChannelCallbacks, ChannelSender } from './channels/types';
 import { downloadImage } from './wechat/media';
 import QRCode from 'qrcode';
@@ -172,7 +174,7 @@ function showOrCreatePanel(): void {
     return;
   }
   const state = currentAccount
-    ? connectedState(currentCwd || '无工作目录')
+    ? connectedState(currentCwd || '无工作目录', channelName())
     : DISCONNECTED_STATE;
   panelInstance = WeChatPanel.createOrShow(extContext.extensionUri, state);
   panelInstance.onDidDispose(() => { panelInstance = undefined; });
@@ -195,7 +197,7 @@ async function handleConnect(): Promise<void> {
     }
     const lock = acquireInstanceLock(existingAccount.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此${channelName()}账号，请先断开该窗口。`);
+      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此账号，请先断开该窗口。`);
       return;
     }
     currentLock = lock;
@@ -205,12 +207,11 @@ async function handleConnect(): Promise<void> {
       logger.info('Updated boundCwd', { accountId: existingAccount.accountId, newCwd: cwd });
     }
     startDaemon(existingAccount, cwd);
-    vscode.window.showInformationMessage(`${channelName()}已连接！`);
     return;
   }
 
-  // Not bound — show QR code (WeChat-specific setup)
-  await doQrBind();
+  // Not bound — show channel picker
+  await showChannelPicker();
 }
 
 function handleDisconnect(): void {
@@ -219,6 +220,7 @@ function handleDisconnect(): void {
     qrBindAbort = null;
   }
 
+  const chName = channelName();
   stopDaemon();
   if (currentLock) {
     releaseInstanceLock(currentLock);
@@ -228,9 +230,11 @@ function handleDisconnect(): void {
     ...DISCONNECTED_STATE,
     status: '已断开连接',
     connectLabel: '🔄 重新连接',
+    channelName: chName,
+    showRebind: !!loadLatestAccount(),
   });
   statusBar.setStatus('disconnected');
-  vscode.window.showInformationMessage(`${channelName()}已断开连接。点击"重新连接"可快速恢复。`);
+  vscode.window.showInformationMessage(`${chName}已断开连接。点击"重新连接"可快速恢复。`);
   logger.info('Disconnected by user, account preserved');
 }
 
@@ -239,15 +243,122 @@ async function handleRebind(): Promise<void> {
     qrBindAbort.abort();
     qrBindAbort = null;
   }
+  const chName = channelName();
   stopDaemon();
-  setUiState(DISCONNECTED_STATE);
-  await doQrBind();
+  if (currentLock) {
+    releaseInstanceLock(currentLock);
+    currentLock = null;
+  }
+  setUiState({
+    ...DISCONNECTED_STATE,
+    channelName: chName,
+    showRebind: true,
+  });
+  await showChannelPicker();
 }
 
 /**
  * WeChat-specific QR bind flow.
  * Future channels (Telegram, etc.) will have their own setup flows.
  */
+async function showChannelPicker(): Promise<void> {
+  const pick = await vscode.window.showQuickPick([
+    { label: '💬 微信', description: '扫码绑定 ClawBot', value: 'wechat' },
+    { label: '✈️ Telegram', description: '输入 Bot Token 连接', value: 'telegram' },
+  ], { placeHolder: '选择连接渠道' });
+
+  if (!pick) return;
+
+  if (pick.value === 'telegram') {
+    await doTelegramSetup();
+  } else {
+    await doQrBind();
+  }
+}
+
+/**
+ * Telegram setup: prompt for bot token, verify, save account, start daemon.
+ */
+async function doTelegramSetup(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('codeClaw');
+  const telegramApiBaseUrl = config.get<string>('telegramApiBaseUrl', 'https://api.telegram.org');
+  const telegramPollTimeout = config.get<number>('telegramPollTimeout', 30);
+
+  const token = await vscode.window.showInputBox({
+    prompt: '请输入 Telegram Bot Token (从 @BotFather 获取)',
+    placeHolder: '例如：1234567890:ABCdefGHIjklMNOpqrsTUVwxyz',
+    password: true,
+    ignoreFocusOut: true,
+  });
+
+  if (!token || !token.trim()) return;
+
+  statusBar.setStatus('connecting');
+  updateStatus('正在验证 Telegram Bot Token...');
+
+  try {
+    const api = new TelegramApi(token.trim(), telegramApiBaseUrl);
+    const bot = await api.getMe();
+    logger.info('Telegram bot verified', { botUsername: bot.username, botId: bot.id });
+
+    const cwd = getWorkspaceCwd();
+    if (!cwd) {
+      updateStatus('⚠️ 请先打开一个项目文件夹');
+      statusBar.setStatus('error');
+      vscode.window.showWarningMessage('请先在 VSCode 中打开一个项目文件夹');
+      return;
+    }
+
+    const account: AccountData = {
+      botToken: token.trim(),
+      accountId: String(bot.id),
+      baseUrl: telegramApiBaseUrl,
+      userId: bot.username ?? String(bot.id),
+      createdAt: new Date().toISOString(),
+      channelType: 'telegram',
+      boundCwd: cwd,
+      telegramPollTimeout: telegramPollTimeout,
+    };
+    saveAccount(account);
+
+    // Notify old channel if switching
+    if (currentAccount && currentAccount.accountId !== account.accountId && currentAccount.channelType !== 'telegram') {
+      try {
+        const oldChannel = createWeChatChannel(currentAccount);
+        const oldSender = oldChannel.getSender();
+        await oldSender.sendText(currentAccount.userId, '', '⚠️ 检测到新的 Telegram 账号已绑定，当前连接已断开。');
+      } catch {
+        // best effort
+      }
+    }
+
+    const lock = acquireInstanceLock(account.accountId);
+    if (!lock) {
+      vscode.window.showWarningMessage('⚠️ 另一个 VSCode 窗口已连接此 Telegram 账号，无法同时连接。');
+      setUiState({ ...DISCONNECTED_STATE, channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('disconnected');
+      return;
+    }
+    currentLock = lock;
+
+    startDaemon(account, cwd);
+    vscode.window.showInformationMessage(`Telegram Bot @${bot.username} 连接成功！`);
+  } catch (err: any) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('Telegram setup failed', { error: msg });
+
+    if (msg.includes('401') || msg.includes('Unauthorized')) {
+      setUiState({ ...DISCONNECTED_STATE, status: '❌ Token 无效或已过期', dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('error');
+      vscode.window.showErrorMessage('Telegram Token 无效，请检查后重试。');
+    } else {
+      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('error');
+      vscode.window.showErrorMessage('Telegram 绑定失败: ' + msg);
+    }
+  }
+}
+
 async function doQrBind(): Promise<void> {
   if (qrBindAbort) {
     qrBindAbort.abort();
@@ -301,12 +412,13 @@ async function doQrBind(): Promise<void> {
     }
 
     account.boundCwd = cwd;
+    account.channelType = 'wechat';
     saveAccount(account);
 
     const lock = acquireInstanceLock(account.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此${channelName()}账号，无法同时连接。`);
-      setUiState(DISCONNECTED_STATE);
+      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此账号，无法同时连接。`);
+      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
       statusBar.setStatus('disconnected');
       return;
     }
@@ -319,16 +431,16 @@ async function doQrBind(): Promise<void> {
     logger.error('QR bind failed', { error: msg });
 
     if (msg.includes('expired')) {
-      setUiState(DISCONNECTED_STATE);
+      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
       statusBar.setStatus('disconnected');
-      vscode.window.showWarningMessage(`${channelName()}二维码已过期，请重试。`);
+      vscode.window.showWarningMessage('二维码已过期，请重试。');
     } else if (msg.includes('cancelled')) {
-      setUiState(DISCONNECTED_STATE);
+      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
       statusBar.setStatus('disconnected');
     } else {
-      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error' });
+      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error', channelName: '微信', showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage(`${channelName()}绑定失败: ` + msg);
+      vscode.window.showErrorMessage('微信绑定失败: ' + msg);
     }
   }
 }
@@ -349,7 +461,16 @@ function stopDaemon(): void {
 function startDaemon(account: AccountData, cwd: string): void {
   stopDaemon();
 
-  const channel = createWeChatChannel(account);
+  // Create channel based on account type
+  let channel: Channel;
+  if (account.channelType === 'telegram') {
+    const config = vscode.workspace.getConfiguration('codeClaw');
+    const baseUrl = account.baseUrl || config.get<string>('telegramApiBaseUrl', 'https://api.telegram.org');
+    const pollTimeout = (account as any).telegramPollTimeout || config.get<number>('telegramPollTimeout', 30);
+    channel = createTelegramChannel(account.botToken, { baseUrl, pollTimeout });
+  } else {
+    channel = createWeChatChannel(account);
+  }
   const sessionStore = createSessionStore();
   const session: Session = sessionStore.load(account.accountId);
 
@@ -372,17 +493,18 @@ function startDaemon(account: AccountData, cwd: string): void {
       await handleMessage(msg, sender, sharedCtx);
     },
     onSessionExpired: () => {
-      const name = channel.channelType === 'wechat' ? '微信' : channel.displayName;
+      const name = channel.displayName;
       logger.warn('Session expired');
-      setUiState({ ...DISCONNECTED_STATE, status: `⚠️ ${name}会话已过期，请重新绑定`, dotClass: 'error' });
+      setUiState({ ...DISCONNECTED_STATE, status: `⚠️ ${name}会话已过期，请重新绑定`, dotClass: 'error', channelName: name, showRebind: true });
       statusBar.setStatus('error');
       vscode.window.showWarningMessage(`${name}会话已过期，请重新扫码绑定。`);
     },
   };
 
   activeChannel = channel;
+  statusBar.setChannelName(channelName());
   statusBar.setStatus('connected');
-  setUiState(connectedState(cwd));
+  setUiState(connectedState(cwd, channelName()));
   _processingLock = Promise.resolve();
   logger.info('Daemon started', { channel: channel.channelType, accountId: channel.accountId, cwd });
 
@@ -540,7 +662,7 @@ async function handleMessage(
     session.state = 'processing';
     sessionStore.save(account.accountId, session);
     statusBar.setStatus('processing');
-    setUiState(processingState());
+    setUiState(processingState(channelName()));
 
     const checklistTracker = new ChecklistTracker(8);
     let checklistUpdateCount = 0;
@@ -558,7 +680,7 @@ async function handleMessage(
               if (msg.displayText) {
                 logger.info('Stream intermediate', {
                   type: msg.type,
-                  preview: msg.displayText.substring(0, 200),
+                  preview: msg.displayText.substring(0, 50),
                 });
               }
 
@@ -627,7 +749,7 @@ async function handleMessage(
       session.state = 'idle';
       sessionStore.save(account.accountId, session);
       statusBar.setStatus('connected');
-      setUiState(connectedState(currentCwd || cwd));
+      setUiState(connectedState(currentCwd || cwd, channelName()));
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error('Error in handleMessage', { error: errorMsg });
@@ -635,7 +757,7 @@ async function handleMessage(
       session.state = 'idle';
       sessionStore.save(account.accountId, session);
       statusBar.setStatus('connected');
-      setUiState(connectedState(currentCwd || cwd));
+      setUiState(connectedState(currentCwd || cwd, channelName()));
     }
   } finally {
     releaseLock?.();

@@ -7,6 +7,8 @@ import { logger } from '../logger';
 export const DEFAULT_BASE_URL = 'https://ilinkai.weixin.qq.com';
 export const CDN_BASE_URL = 'https://novac2c.cdn.weixin.qq.com/c2c';
 
+export type ChannelType = 'wechat' | 'telegram';
+
 export interface AccountData {
   botToken: string;
   accountId: string;
@@ -15,6 +17,10 @@ export interface AccountData {
   createdAt: string;
   /** The VSCode workspace directory that was bound to this account */
   boundCwd?: string;
+  /** Which channel this account belongs to */
+  channelType?: ChannelType;
+  /** Telegram-specific: long-poll timeout in seconds */
+  telegramPollTimeout?: number;
 }
 
 const ACCOUNTS_DIR = join(homedir(), '.codeclaw-vscode', 'accounts');

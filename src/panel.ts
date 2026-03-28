@@ -10,8 +10,14 @@ export type ViewState = {
   showQr: boolean;
   showConnect: boolean;
   showDisconnect: boolean;
+  /** QR code data URI to display */
+  qrDataUri?: string;
+  /** Show the rebind (switch channel) button */
+  showRebind?: boolean;
   /** Label for the connect button; defaults to '🔗 连接微信' */
   connectLabel?: string;
+  /** Current channel display name (e.g. '微信', 'Telegram') */
+  channelName?: string;
 };
 
 export const DISCONNECTED_STATE: ViewState = {
@@ -22,23 +28,25 @@ export const DISCONNECTED_STATE: ViewState = {
   showDisconnect: false,
 };
 
-export function connectedState(cwd: string): ViewState {
+export function connectedState(cwd: string, channelName: string = '微信'): ViewState {
   return {
-    status: '✅ 已连接 — ' + cwd,
+    status: channelName + '已连接 — ' + cwd,
     dotClass: 'connected',
     showQr: false,
     showConnect: false,
     showDisconnect: true,
+    channelName,
   };
 }
 
-export function processingState(): ViewState {
+export function processingState(channelName: string = '微信'): ViewState {
   return {
     status: '⏳ 正在处理消息...',
     dotClass: 'connecting',
     showQr: false,
     showConnect: false,
     showDisconnect: true,
+    channelName,
   };
 }
 
@@ -199,30 +207,30 @@ export class WeChatSidebarProvider implements vscode.WebviewViewProvider {
   public setViewState(state: ViewState): void {
     this._state = state;
     this._stateVersion++;
-    // Push full state update to WebView so it re-renders immediately
+    // Full re-render — all state is embedded in HTML, no stale DOM
     if (this._view) {
       this._view.webview.html = getWebviewHtml('sidebar', state, this._stateVersion);
     }
   }
 
   public showQrCode(dataUri: string): void {
-    this._state = { ...this._state, showQr: true, showConnect: false };
-    this._view?.webview.postMessage({ command: 'showQrCode', dataUri, version: this._stateVersion });
+    this._state = { ...this._state, showQr: true, showConnect: false, qrDataUri: dataUri };
+    this.setViewState(this._state);
   }
 
   public hideQrCode(): void {
     this._state = { ...this._state, showQr: false };
-    this._view?.webview.postMessage({ command: 'hideQrCode', version: this._stateVersion });
+    this.setViewState(this._state);
   }
 
   public showConnectButton(): void {
     this._state = { ...this._state, showConnect: true, showDisconnect: false };
-    this._view?.webview.postMessage({ command: 'showConnectButton', version: this._stateVersion });
+    this.setViewState(this._state);
   }
 
   public updateStatus(status: string): void {
     this._state.status = status;
-    this._view?.webview.postMessage({ command: 'updateStatus', status, version: this._stateVersion });
+    this.setViewState(this._state);
   }
 }
 
@@ -300,51 +308,24 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion
   </div>
 
   <div class="qr-container ${state.showQr ? 'visible' : ''}" id="qrContainer">
-    <img id="qrImage" alt="微信绑定二维码" />
+    <img id="qrImage" alt="微信绑定二维码" ${state.qrDataUri ? 'src="' + esc(state.qrDataUri) + '"' : ''} />
     <div class="qr-hint">请使用微信扫描上方二维码</div>
   </div>
 
   <div class="btn-row">
-    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">${esc(state.connectLabel || '🔗 连接微信')}</button>
+    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">${esc(state.connectLabel || '🔗 连接IM应用')}</button>
     <button id="disconnectBtn" class="secondary" onclick="sendCmd('disconnect')" style="display:${state.showDisconnect ? '' : 'none'}">断开连接</button>
-    <button id="rebindBtn" class="secondary" onclick="sendCmd('rebind')" style="display:${state.showDisconnect ? '' : 'none'}">重新绑定</button>
+    <button id="rebindBtn" class="secondary" onclick="sendCmd('rebind')" style="display:${state.showDisconnect || state.showRebind ? '' : 'none'}">切换渠道</button>
   </div>
 
   <div class="help-text">
-    连接微信后，可在微信中发送消息操作当前项目。<br/>
+    连接IM应用后，可在 IM 中发送消息操作当前项目。<br/>
     发送 /help 查看可用命令。
   </div>
 
   <script>
     const vscode = acquireVsCodeApi();
-    let stateVersion = ${stateVersion ?? 0};
     function sendCmd(cmd) { vscode.postMessage({ command: cmd }); }
-
-    window.addEventListener('message', (event) => {
-      const msg = event.data;
-      // Ignore stale messages from before the last full HTML re-render
-      if (msg.version !== undefined && msg.version !== stateVersion) return;
-      switch (msg.command) {
-        case 'showQrCode':
-          document.getElementById('qrImage').src = msg.dataUri;
-          document.getElementById('qrContainer').classList.add('visible');
-          document.getElementById('connectBtn').style.display = 'none';
-          document.getElementById('disconnectBtn').style.display = 'none';
-          document.getElementById('rebindBtn').style.display = 'none';
-          break;
-        case 'hideQrCode':
-          document.getElementById('qrContainer').classList.remove('visible');
-          break;
-        case 'showConnectButton':
-          document.getElementById('connectBtn').style.display = '';
-          document.getElementById('disconnectBtn').style.display = 'none';
-          document.getElementById('rebindBtn').style.display = 'none';
-          break;
-        case 'updateStatus':
-          document.getElementById('statusText').textContent = msg.status;
-          break;
-      }
-    });
   </script>
 </body>
 </html>`;

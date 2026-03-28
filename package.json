@@ -28,7 +28,8 @@
     "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
     "package": "npm run vscode:prepublish && npx @vscode/vsce package --allow-missing-repository",
     "test": "npm run compile && node --test tests/*.test.js",
-    "test:fast": "npm run compile && SKIP_SLOW_TESTS=1 node --test tests/*.test.js"
+    "test:fast": "npm run compile && SKIP_SLOW_TESTS=1 node --test tests/*.test.js",
+    "test:e2e": "npm_config_proxy=http://127.0.0.1:7897 npm_config_https_proxy=http://127.0.0.1:7897 npx vscode-test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.77",
@@ -38,7 +39,10 @@
     "@types/node": "^22.0.0",
     "@types/qrcode": "^1.5.6",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.27.4",
+    "mocha": "^11.7.5",
     "typescript": "^5.7.0"
   },
   "categories": [
@@ -87,7 +91,12 @@
         },
         "codeClaw.logLevel": {
           "type": "string",
-          "enum": ["DEBUG", "INFO", "WARN", "ERROR"],
+          "enum": [
+            "DEBUG",
+            "INFO",
+            "WARN",
+            "ERROR"
+          ],
           "enumDescriptions": {
             "DEBUG": "输出所有日志，包含详细的调试信息",
             "INFO": "输出常规信息（默认）",
@@ -103,6 +112,18 @@
           "default": true,
           "description": "是否将 Claude Code 的中间过程（工具调用、思考等）实时发送到微信。关闭后仅发送最终结果。",
           "order": 3
+        },
+        "codeClaw.telegramApiBaseUrl": {
+          "type": "string",
+          "default": "https://api.telegram.org",
+          "description": "Telegram Bot API 地址（默认为官方地址，测试时可指向本地 mock 服务器）。",
+          "order": 4
+        },
+        "codeClaw.telegramPollTimeout": {
+          "type": "number",
+          "default": 30,
+          "description": "Telegram long-poll 超时秒数（测试时可设为较小的值如 2）。",
+          "order": 5
         }
       }
     },

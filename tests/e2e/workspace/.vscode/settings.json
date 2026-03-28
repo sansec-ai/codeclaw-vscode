@@ -1,0 +1,5 @@
+{
+  "codeClaw.telegramApiBaseUrl": "http://localhost:19920",
+  "codeClaw.telegramPollTimeout": 2,
+  "security.workspace.trust.enabled": false
+}
