@@ -4,7 +4,7 @@
 import { WeChatApi } from '../wechat/api';
 import { createMonitor, type MonitorCallbacks } from '../wechat/monitor';
 import { createSender } from '../wechat/send';
-import { extractText, extractFirstImageUrl } from '../wechat/media';
+import { extractText } from '../wechat/media';
 import { MessageType, type WeixinMessage } from '../wechat/types';
 import type { AccountData } from '../wechat/accounts';
 import { logger } from '../logger';
@@ -16,25 +16,14 @@ function toChannelMessage(msg: WeixinMessage): ChannelMessage | null {
   if (!msg.from_user_id || !msg.item_list) return null;
 
   const text = msg.item_list.map((item) => extractText(item)).filter(Boolean).join('\n');
-  const imageItem = extractFirstImageUrl(msg.item_list);
-  const imageUrl = imageItem ? extractImageUrlFromItem(imageItem) : undefined;
 
   return {
     id: String(msg.message_id ?? Date.now()),
     fromUserId: msg.from_user_id,
     text,
-    imageUrl,
+    imageUrl: undefined, // WeChat images handled via downloadImage in claude/provider.ts
     contextToken: msg.context_token ?? '',
   };
-}
-
-/** Extract a usable URL string from an image MessageItem (for passing to Claude) */
-function extractImageUrlFromItem(item: any): string | undefined {
-  // Currently we return a placeholder; the actual image download happens
-  // inside claude/provider.ts when it detects an imageUrl.
-  // For WeChat, images need CDN decryption, which is handled separately.
-  // We store a special marker so the extension knows to use WeChat's downloadImage.
-  return undefined; // Images are handled via the WeChat API, not raw URLs
 }
 
 export function createWeChatChannel(account: AccountData): Channel {

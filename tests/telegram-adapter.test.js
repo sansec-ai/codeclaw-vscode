@@ -76,7 +76,7 @@ describe('telegram-adapter', () => {
       const channel = createTelegramChannel('test-token-123');
       assert.equal(channel.channelType, 'telegram');
       assert.equal(channel.displayName, 'Telegram');
-      assert.ok(channel.accountId.startsWith('tg_test-to'));
+      assert.equal(channel.accountId, '', 'accountId is set by caller (startDaemon)');
     });
 
     it('getSender returns a sender with sendText method', () => {

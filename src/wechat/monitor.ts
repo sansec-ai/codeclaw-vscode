@@ -145,10 +145,13 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
 
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; signal?.removeEventListener('abort', onAbort); resolve(); }
+    }, ms);
+    const onAbort = () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(); }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }

@@ -466,8 +466,9 @@ function startDaemon(account: AccountData, cwd: string): void {
   if (account.channelType === 'telegram') {
     const config = vscode.workspace.getConfiguration('codeClaw');
     const baseUrl = account.baseUrl || config.get<string>('telegramApiBaseUrl', 'https://api.telegram.org');
-    const pollTimeout = (account as any).telegramPollTimeout || config.get<number>('telegramPollTimeout', 30);
+    const pollTimeout = account.telegramPollTimeout || config.get<number>('telegramPollTimeout', 30);
     channel = createTelegramChannel(account.botToken, { baseUrl, pollTimeout });
+    channel = { ...channel, accountId: account.accountId, userId: account.userId };
   } else {
     channel = createWeChatChannel(account);
   }

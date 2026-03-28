@@ -117,18 +117,21 @@ export class WeChatPanel {
   public reveal(): void { this._panel.reveal(); }
 
   public showQrCode(dataUri: string): void {
-    this._state = { ...this._state, showQr: true, showConnect: false };
-    this._panel.webview.postMessage({ command: 'showQrCode', dataUri, version: this._stateVersion });
+    this._state = { ...this._state, showQr: true, showConnect: false, qrDataUri: dataUri };
+    this._stateVersion++;
+    this._panel.webview.html = getWebviewHtml('full', this._state, this._stateVersion);
   }
 
   public hideQrCode(): void {
     this._state = { ...this._state, showQr: false };
-    this._panel.webview.postMessage({ command: 'hideQrCode', version: this._stateVersion });
+    this._stateVersion++;
+    this._panel.webview.html = getWebviewHtml('full', this._state, this._stateVersion);
   }
 
   public showConnectButton(): void {
     this._state = { ...this._state, showConnect: true, showDisconnect: false };
-    this._panel.webview.postMessage({ command: 'showConnectButton', version: this._stateVersion });
+    this._stateVersion++;
+    this._panel.webview.html = getWebviewHtml('full', this._state, this._stateVersion);
   }
 
   public setState(state: ViewState): void {
@@ -139,7 +142,8 @@ export class WeChatPanel {
 
   public updateStatus(status: string): void {
     this._state.status = status;
-    this._panel.webview.postMessage({ command: 'updateStatus', status, version: this._stateVersion });
+    this._stateVersion++;
+    this._panel.webview.html = getWebviewHtml('full', this._state, this._stateVersion);
   }
 
   public onDidDispose(callback: () => void): void {

@@ -42,6 +42,8 @@ function cleanupAccounts() {
   fs.readdirSync(ACCOUNTS_DIR).filter(f => f.endsWith('.json')).forEach(f => {
     try { fs.unlinkSync(path.join(ACCOUNTS_DIR, f)); } catch {}
   });
+  // Allow OS to release file handles
+  return sleep(100);
 }
 
 function cleanupLocks() {
@@ -52,6 +54,7 @@ function cleanupLocks() {
       });
     }
   } catch {}
+  return sleep(100);
 }
 
 function touchAccount(accountId) {

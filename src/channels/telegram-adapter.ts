@@ -8,7 +8,7 @@ import { CHANNEL_DISPLAY_NAMES } from './types';
 
 // ── Message Conversion ───────────────────────────────────────────────────
 
-function toChannelMessage(update: TelegramUpdate): ChannelMessage | null {
+function toChannelMessage(update: TelegramUpdate, api: TelegramApi): ChannelMessage | null {
   const msg = update.message;
   if (!msg) return null;
 
@@ -20,17 +20,15 @@ function toChannelMessage(update: TelegramUpdate): ChannelMessage | null {
 
   const text = msg.text ?? msg.caption ?? '';
   const fromUserId = String(msg.chat.id);
-  const imageUrl = msg.photo ? undefined : undefined; // handled lazily via rawPhoto
 
   return {
     id: String(update.update_id),
     fromUserId,
     text,
-    imageUrl,
-    contextToken: String(msg.message_id), // use message_id as reply target
-    // Store raw photo for lazy download
+    imageUrl: undefined, // filled lazily in start() if photo present
+    contextToken: String(msg.message_id),
     _rawPhoto: msg.photo ? msg.photo[msg.photo.length - 1] : undefined,
-    _api: undefined, // injected after channel creation
+    _api: msg.photo ? api : undefined,
   } as ChannelMessage & { _rawPhoto?: TelegramPhotoSize; _api?: TelegramApi };
 }
 
@@ -79,7 +77,7 @@ export function createTelegramChannel(
   return {
     channelType: 'telegram' as const,
     displayName: CHANNEL_DISPLAY_NAMES['telegram'],
-    accountId: `tg_${botToken.slice(0, 8)}`,
+    accountId: '', // set by caller (e.g. bot.id from doTelegramSetup)
     userId: '', // Telegram: userId is per-message (chat_id)
 
     start(callbacks: ChannelCallbacks): void {
@@ -137,8 +135,29 @@ async function pollLoop(
             offset = update.update_id + 1;
           }
 
-          const channelMsg = toChannelMessage(update);
+          const channelMsg = toChannelMessage(update, api);
           if (!channelMsg) continue;
+
+          // Download photo if present
+          const raw = (channelMsg as any)._rawPhoto;
+          const photoApi = (channelMsg as any)._api;
+          if (raw && photoApi) {
+            try {
+              const fileInfo = await photoApi.getFile(raw.file_id);
+              if (fileInfo.file_path) {
+                const buf = await photoApi.downloadFile(fileInfo.file_path);
+                channelMsg.imageUrl = `data:image/jpeg;base64,${buf.toString('base64')}`;
+                logger.info('Downloaded Telegram photo', { fileId: raw.file_id, size: buf.length });
+              }
+            } catch (imgErr) {
+              logger.warn('Failed to download Telegram photo', {
+                error: imgErr instanceof Error ? imgErr.message : String(imgErr),
+                fileId: raw.file_id,
+              });
+            }
+            delete (channelMsg as any)._rawPhoto;
+            delete (channelMsg as any)._api;
+          }
 
           // Filter by allowed chat IDs if configured
           if (allowedChatIds && allowedChatIds.length > 0) {
@@ -187,7 +206,13 @@ async function pollLoop(
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     if (signal?.aborted) { resolve(); return; }
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; signal?.removeEventListener('abort', onAbort); resolve(); }
+    }, ms);
+    const onAbort = () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(); }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
