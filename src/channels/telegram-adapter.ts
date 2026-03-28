@@ -191,6 +191,19 @@ async function pollLoop(
         break;
       }
 
+      // Network / connection errors (server not running yet) → short retry, don't accumulate
+      const isConnErr = err instanceof Error && (
+        err.message.includes('ECONNREFUSED') ||
+        err.message.includes('ECONNRESET') ||
+        err.message.includes('ENOTFOUND') ||
+        err.message.includes('socket hang up')
+      );
+      if (isConnErr) {
+        logger.warn('Telegram API unreachable, retrying in 2s', { error: err.message });
+        await sleep(2_000, signal);
+        continue;
+      }
+
       consecutiveFailures++;
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error('Telegram poll error', { error: errorMsg, consecutiveFailures });
