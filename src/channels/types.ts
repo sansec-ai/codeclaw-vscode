@@ -1,3 +1,5 @@
+import { t } from '../i18n';
+
 // ── Unified channel types ──────────────────────────────────────────────────
 // Channel-agnostic message and interface definitions.
 // Each channel (WeChat, Telegram, etc.) implements Channel.
@@ -27,17 +29,20 @@ export interface ChannelSender {
   sendText(toUserId: string, contextToken: string, text: string): Promise<void>;
 }
 
-/** Channel display names (user-facing, e.g. "微信", "Telegram") */
-export const CHANNEL_DISPLAY_NAMES: Record<string, string> = {
-  wechat: '微信',
-  telegram: 'Telegram',
-};
+/** Channel display names (user-facing, e.g. "WeChat", "Telegram") */
+export function getChannelDisplayName(channelType: string): string {
+  switch (channelType) {
+    case 'wechat': return t('channelWechat');
+    case 'telegram': return t('channelTelegram');
+    default: return channelType;
+  }
+}
 
 /** Channel lifecycle interface */
 export interface Channel {
   /** Discriminator: 'wechat', 'telegram', etc. */
   readonly channelType: string;
-  /** User-facing channel name (e.g. "微信") */
+  /** User-facing channel name (e.g. "WeChat") */
   readonly displayName: string;
   /** Channel-specific account identifier */
   readonly accountId: string;

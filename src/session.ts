@@ -3,6 +3,7 @@ import { mkdirSync } from 'node:fs';
 import { DATA_DIR } from './constants';
 import { join } from 'node:path';
 import { logger } from './logger';
+import { t, getLocale } from './i18n';
 
 const SESSIONS_DIR = join(DATA_DIR, 'sessions');
 
@@ -107,12 +108,12 @@ export function createSessionStore() {
     const history = session.chatHistory || [];
     const messages = limit ? history.slice(-limit) : history;
     if (messages.length === 0) {
-      return '暂无对话记录';
+      return t('noChatHistory');
     }
     const lines: string[] = [];
     for (const msg of messages) {
-      const time = new Date(msg.timestamp).toLocaleString('zh-CN');
-      const role = msg.role === 'user' ? '用户' : 'Claude';
+      const time = new Date(msg.timestamp).toLocaleString(getLocale() === 'zh' ? 'zh-CN' : 'en-US');
+      const role = msg.role === 'user' ? t('chatRoleUser') : 'Claude';
       lines.push(`[${time}] ${role}:`);
       lines.push(msg.content);
       lines.push('');

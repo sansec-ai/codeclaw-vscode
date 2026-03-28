@@ -1,12 +1,14 @@
 # 从微信到 VSCode：用 ClawBot API 构建 Claude Code 远程控制插件
 
+> English readers: This article is available in Chinese. For the user-facing documentation, see [README.md](../README.md).
+
 ## 1. 引言
 
 你有没有过这样的时刻——通勤地铁上突然想到一个 bug 的修复方案，但手边只有手机；躺在床上不想开电脑，却想让 AI 帮你写一个新功能；或者在外出差，需要远程 review 一下代码改动？
 
-这就是 **Code Claw** 诞生的原因。它是一个 VSCode 扩展，把你的个人微信变成 Claude Code 的远程终端——手机发消息，电脑上的 Claude Code 帮你写代码。你不需要打开电脑，不需要 VPN，甚至不需要知道电脑在哪里——只要微信能发消息就行。
+这就是 **Code Claw** 诞生的原因。它是一个 VSCode 扩展，把你的个人微信或 Telegram 变成 Claude Code 的远程终端——手机发消息，电脑上的 Claude Code 帮你写代码。
 
-本文将深入介绍这个项目的技术实现，包括微信 ClawBot API 协议、Claude Agent SDK 集成、VSCode 扩展架构设计，以及开发过程中遇到的关键挑战和解决方案。
+本文将深入介绍项目的技术实现，包括微信 ClawBot API 协议、Telegram Bot API 集成、Claude Agent SDK 集成、VSCode 扩展架构设计、国际化支持，以及开发过程中遇到的关键挑战和解决方案。
 
 ## 2. 微信 ClawBot 是什么
 
@@ -448,4 +450,114 @@ Code Claw 是一次有趣的尝试：把微信的官方 Bot API 和 Claude Code 
 - **VSCode Marketplace 发布**：让更多用户方便地安装和使用
 - **图片理解**：利用 Claude 的多模态能力，支持发送截图让 AI 分析代码界面
 
-如果你也想让手机变成编程助手，欢迎试用 Code Claw。项目代码开源在 [Gitee](https://gitee.com/SansecAiLab/codeclaw-vscode)，欢迎 Star 和 PR。
+## 8. 多渠道架构：Telegram 支持
+
+### 8.1 Channel 抽象层
+
+为了支持多渠道（微信、Telegram、未来更多），我们设计了统一的 Channel 接口：
+
+```typescript
+// src/channels/types.ts
+export interface Channel {
+  channelType: 'wechat' | 'telegram';
+  displayName: string;
+  accountId: string;
+  start(callbacks: ChannelCallbacks): void;
+  stop(): void;
+  getSender(): ChannelSender;
+}
+
+export interface ChannelMessage {
+  id: string;
+  fromUserId: string;
+  text: string;
+  imageUrl?: string;
+  contextToken: string;
+}
+
+export interface ChannelSender {
+  sendText(toUserId: string, contextToken: string, text: string): Promise<void>;
+}
+```
+
+每个渠道实现自己的 `createXxxChannel()` 工厂函数，返回 `Channel` 接口。`startDaemon()` 根据账号的 `channelType` 字段选择创建对应的渠道：
+
+```typescript
+function startDaemon(account: AccountData, cwd: string): void {
+  let channel: Channel;
+  if (account.channelType === 'telegram') {
+    channel = createTelegramChannel(account.botToken, { baseUrl, pollTimeout });
+  } else {
+    channel = createWeChatChannel(account);
+  }
+  // ...
+}
+```
+
+### 8.2 Telegram 适配器
+
+Telegram 使用长轮询（long-polling）接收消息：
+
+```typescript
+async function pollLoop(
+  api: TelegramApi,
+  callbacks: ChannelCallbacks,
+  signal: AbortSignal,
+  pollTimeout: number,
+  allowedChatIds?: string[],
+): Promise<void> {
+  let offset = 0;
+  while (!signal.aborted) {
+    const updates = await api.getUpdates(offset, pollTimeout);
+    for (const update of updates) {
+      const channelMsg = toChannelMessage(update);
+      if (channelMsg) await callbacks.onMessage(channelMsg);
+      offset = update.update_id + 1;
+    }
+  }
+}
+```
+
+### 8.3 向后兼容
+
+老用户的账号数据中没有 `channelType` 字段，值为 `undefined`。代码中用严格等于 `'telegram'` 判断，`undefined !== 'telegram'` 自动走微信路径，确保向后兼容。
+
+## 9. 国际化（i18n）
+
+### 9.1 语言检测
+
+根据 `vscode.env.language` 检测系统语言，中文地区（`zh-CN`、`zh-TW`、`zh-HK` 及其他 `zh-*`）使用中文，其他地区使用英文：
+
+```typescript
+function detectLocale(): 'zh' | 'en' {
+  const lang = vscode.env.language || process.env.LANG || 'en';
+  return lang.toLowerCase().startsWith('zh') ? 'zh' : 'en';
+}
+```
+
+### 9.2 `t()` 函数
+
+所有用户可见文案通过 `t(key, ...args)` 函数获取，支持 `%s` 占位符：
+
+```typescript
+export function t(key: string, ...args: (string | number)[]): string {
+  const locale = currentLocale;
+  let text = messages[locale][key] || messages['en'][key] || key;
+  args.forEach((arg, i) => {
+    text = text.replace(`%s`, String(arg));
+  });
+  return text;
+}
+```
+
+### 9.3 Webview 中的国际化
+
+Webview HTML 模板中的文案通过 `esc(t('key'))` 嵌入：
+
+```typescript
+<button>${esc(t('connectBtn'))}</button>
+// 中文: "🔗 连接IM应用"
+// 英文: "🔗 Connect"
+```
+
+如果你也想让手机变成编程助手，欢迎试用 Code Claw。项目代码开源在 [GitHub](https://github.com/sansec-ai/codeclaw-vscode)，欢迎 Star 和 PR。

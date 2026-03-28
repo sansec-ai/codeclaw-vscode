@@ -2,7 +2,7 @@
   "name": "codeclaw-vscode",
   "displayName": "Code Claw - OpenClaw VSCode",
   "description": "Turn WeChat into a remote Claude Code terminal. Chat with AI from your phone via ClawBot. Part of the OpenClaw ecosystem.",
-  "version": "0.1.78",
+  "version": "0.1.79",
   "publisher": "Sansec",
   "icon": "icon.png",
   "repository": {

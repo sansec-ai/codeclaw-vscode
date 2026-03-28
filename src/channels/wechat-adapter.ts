@@ -9,7 +9,7 @@ import { MessageType, type WeixinMessage } from '../wechat/types';
 import type { AccountData } from '../wechat/accounts';
 import { logger } from '../logger';
 import type { Channel, ChannelCallbacks, ChannelMessage, ChannelSender } from './types';
-import { CHANNEL_DISPLAY_NAMES } from './types';
+import { getChannelDisplayName } from './types';
 
 function toChannelMessage(msg: WeixinMessage): ChannelMessage | null {
   if (msg.message_type !== MessageType.USER) return null;
@@ -33,7 +33,7 @@ export function createWeChatChannel(account: AccountData): Channel {
 
   return {
     channelType: 'wechat' as const,
-    displayName: CHANNEL_DISPLAY_NAMES['wechat'],
+    displayName: getChannelDisplayName('wechat'),
     accountId: account.accountId,
     userId: account.userId,
 

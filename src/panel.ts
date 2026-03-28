@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { t } from './i18n';
 
 // =========================================================================
 // Types
@@ -14,23 +15,23 @@ export type ViewState = {
   qrDataUri?: string;
   /** Show the rebind (switch channel) button */
   showRebind?: boolean;
-  /** Label for the connect button; defaults to '🔗 连接微信' */
+  /** Label for the connect button; defaults to t('connectBtn') */
   connectLabel?: string;
-  /** Current channel display name (e.g. '微信', 'Telegram') */
+  /** Current channel display name (e.g. 'WeChat', 'Telegram') */
   channelName?: string;
 };
 
 export const DISCONNECTED_STATE: ViewState = {
-  status: '未连接',
+  status: t('disconnected'),
   dotClass: 'disconnected',
   showQr: false,
   showConnect: true,
   showDisconnect: false,
 };
 
-export function connectedState(cwd: string, channelName: string = '微信'): ViewState {
+export function connectedState(cwd: string, channelName: string = t('channelWechat')): ViewState {
   return {
-    status: channelName + '已连接 — ' + cwd,
+    status: t('connectedStatus', channelName, cwd),
     dotClass: 'connected',
     showQr: false,
     showConnect: false,
@@ -39,9 +40,9 @@ export function connectedState(cwd: string, channelName: string = '微信'): Vie
   };
 }
 
-export function processingState(channelName: string = '微信'): ViewState {
+export function processingState(channelName: string = t('channelWechat')): ViewState {
   return {
-    status: '⏳ 正在处理消息...',
+    status: t('processingStatus'),
     dotClass: 'connecting',
     showQr: false,
     showConnect: false,
@@ -312,19 +313,18 @@ function getWebviewHtml(mode: 'full' | 'sidebar', state: ViewState, stateVersion
   </div>
 
   <div class="qr-container ${state.showQr ? 'visible' : ''}" id="qrContainer">
-    <img id="qrImage" alt="微信绑定二维码" ${state.qrDataUri ? 'src="' + esc(state.qrDataUri) + '"' : ''} />
-    <div class="qr-hint">请使用微信扫描上方二维码</div>
+    <img id="qrImage" alt="${esc(t('qrAlt'))}" ${state.qrDataUri ? 'src="' + esc(state.qrDataUri) + '"' : ''} />
+    <div class="qr-hint">${esc(t('qrHint'))}</div>
   </div>
 
   <div class="btn-row">
-    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">${esc(state.connectLabel || '🔗 连接IM应用')}</button>
-    <button id="disconnectBtn" class="secondary" onclick="sendCmd('disconnect')" style="display:${state.showDisconnect ? '' : 'none'}">断开连接</button>
-    <button id="rebindBtn" class="secondary" onclick="sendCmd('rebind')" style="display:${state.showDisconnect || state.showRebind ? '' : 'none'}">切换渠道</button>
+    <button id="connectBtn" onclick="sendCmd('connect')" style="display:${state.showConnect ? '' : 'none'}">${esc(state.connectLabel || t('connectBtn'))}</button>
+    <button id="disconnectBtn" class="secondary" onclick="sendCmd('disconnect')" style="display:${state.showDisconnect ? '' : 'none'}">${esc(t('disconnectBtn'))}</button>
+    <button id="rebindBtn" class="secondary" onclick="sendCmd('rebind')" style="display:${state.showDisconnect || state.showRebind ? '' : 'none'}">${esc(t('switchChannelBtn'))}</button>
   </div>
 
   <div class="help-text">
-    连接IM应用后，可在 IM 中发送消息操作当前项目。<br/>
-    发送 /help 查看可用命令。
+    ${t('helpTextHtml')}
   </div>
 
   <script>

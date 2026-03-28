@@ -4,7 +4,7 @@
 import { TelegramApi, TelegramApiError, type TelegramUpdate, type TelegramPhotoSize } from './telegram-api';
 import { logger } from '../logger';
 import type { Channel, ChannelCallbacks, ChannelMessage, ChannelSender } from './types';
-import { CHANNEL_DISPLAY_NAMES } from './types';
+import { getChannelDisplayName } from './types';
 
 // ── Message Conversion ───────────────────────────────────────────────────
 
@@ -76,7 +76,7 @@ export function createTelegramChannel(
 
   return {
     channelType: 'telegram' as const,
-    displayName: CHANNEL_DISPLAY_NAMES['telegram'],
+    displayName: getChannelDisplayName('telegram'),
     accountId: '', // set by caller (e.g. bot.id from doTelegramSetup)
     userId: '', // Telegram: userId is per-message (chat_id)
 

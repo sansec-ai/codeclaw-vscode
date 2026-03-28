@@ -20,6 +20,7 @@ import { TelegramApi } from './channels/telegram-api';
 import type { Channel, ChannelMessage, ChannelCallbacks, ChannelSender } from './channels/types';
 import { downloadImage } from './wechat/media';
 import QRCode from 'qrcode';
+import { t, initLocale } from './i18n';
 
 // ========== Global State ==========
 let panelInstance: WeChatPanel | undefined;
@@ -38,9 +39,9 @@ let currentLock: LockHandle | null = null;
 
 // ========== Helpers ==========
 
-/** Get user-facing channel name, fallback to '微信' for backward compat */
+/** Get user-facing channel name, fallback to t('channelWechat') for backward compat */
 function channelName(): string {
-  return activeChannel?.displayName ?? '微信';
+  return activeChannel?.displayName ?? t('channelWechat');
 }
 
 function getWorkspaceCwd(): string | undefined {
@@ -48,17 +49,9 @@ function getWorkspaceCwd(): string | undefined {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
-const HELP_TEXT = [
-  '可用命令：',
-  '',
-  '  /help             显示帮助',
-  '  /new              开启新会话',
-  '  /model <名称>     切换 Claude 模型',
-  '  /mode <模式>      切换权限模式 (default/acceptEdits/plan)',
-  '  /status           查看当前会话状态',
-  '',
-  '直接输入文字即可与 Claude Code 对话（连续会话）',
-].join('\n');
+function getHelpText(): string {
+  return t('helpText');
+}
 
 // ========== Activate / Deactivate ==========
 
@@ -67,6 +60,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Code Claw');
   ctx.subscriptions.push(outputChannel);
   initLogger(outputChannel);
+
+  // Initialize locale from VSCode environment language
+  initLocale(vscode.env.language);
 
   statusBar = new StatusBarManager();
   ctx.subscriptions.push(statusBar);
@@ -98,8 +94,8 @@ export async function activate(ctx: vscode.ExtensionContext) {
       statusBar.setStatus('disconnected');
       setUiState({
         ...DISCONNECTED_STATE,
-        status: '请打开项目文件夹后重新连接',
-        connectLabel: '🔄 重新连接',
+        status: t('noWorkspaceReconnect'),
+        connectLabel: t('reconnectBtn'),
       });
     } else {
       const lock = acquireInstanceLock(account.accountId);
@@ -108,7 +104,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
         statusBar.setStatus('disconnected');
         setUiState({
           ...DISCONNECTED_STATE,
-          status: '⚠️ 另一个 VSCode 窗口已连接此账号',
+          status: t('anotherWindowConnectedStatus'),
           dotClass: 'error',
           showConnect: false,
           showDisconnect: true,
@@ -174,7 +170,7 @@ function showOrCreatePanel(): void {
     return;
   }
   const state = currentAccount
-    ? connectedState(currentCwd || '无工作目录', channelName())
+    ? connectedState(currentCwd || t('noWorkspaceDir'), channelName())
     : DISCONNECTED_STATE;
   panelInstance = WeChatPanel.createOrShow(extContext.extensionUri, state);
   panelInstance.onDidDispose(() => { panelInstance = undefined; });
@@ -188,16 +184,16 @@ async function handleConnect(): Promise<void> {
   if (existingAccount) {
     const cwd = getWorkspaceCwd();
     if (!cwd) {
-      vscode.window.showWarningMessage('请先在 VSCode 中打开一个项目文件夹');
+      vscode.window.showWarningMessage(t('openFolderFirst'));
       return;
     }
     if (currentAccount && activeChannel) {
-      vscode.window.showInformationMessage(`${channelName()}已连接，无需重复连接。`);
+      vscode.window.showInformationMessage(t('alreadyConnected', channelName()));
       return;
     }
     const lock = acquireInstanceLock(existingAccount.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此账号，请先断开该窗口。`);
+      vscode.window.showWarningMessage(t('anotherWindowConnected'));
       return;
     }
     currentLock = lock;
@@ -228,13 +224,13 @@ function handleDisconnect(): void {
   }
   setUiState({
     ...DISCONNECTED_STATE,
-    status: '已断开连接',
-    connectLabel: '🔄 重新连接',
+    status: t('disconnectedStatus'),
+    connectLabel: t('reconnectBtn'),
     channelName: chName,
     showRebind: !!loadLatestAccount(),
   });
   statusBar.setStatus('disconnected');
-  vscode.window.showInformationMessage(`${chName}已断开连接。点击"重新连接"可快速恢复。`);
+  vscode.window.showInformationMessage(t('disconnectedMsg', chName));
   logger.info('Disconnected by user, account preserved');
 }
 
@@ -263,9 +259,9 @@ async function handleRebind(): Promise<void> {
  */
 async function showChannelPicker(): Promise<void> {
   const pick = await vscode.window.showQuickPick([
-    { label: '💬 微信', description: '扫码绑定 ClawBot', value: 'wechat' },
-    { label: '✈️ Telegram', description: '输入 Bot Token 连接', value: 'telegram' },
-  ], { placeHolder: '选择连接渠道' });
+    { label: t('channelWechatLabel'), description: t('channelWechatDesc'), value: 'wechat' },
+    { label: t('channelTelegramLabel'), description: t('channelTelegramDesc'), value: 'telegram' },
+  ], { placeHolder: t('chooseChannel') });
 
   if (!pick) return;
 
@@ -285,8 +281,8 @@ async function doTelegramSetup(): Promise<void> {
   const telegramPollTimeout = config.get<number>('telegramPollTimeout', 30);
 
   const token = await vscode.window.showInputBox({
-    prompt: '请输入 Telegram Bot Token (从 @BotFather 获取)',
-    placeHolder: '例如：1234567890:ABCdefGHIjklMNOpqrsTUVwxyz',
+    prompt: t('telegramTokenPrompt'),
+    placeHolder: t('telegramTokenPlaceholder'),
     password: true,
     ignoreFocusOut: true,
   });
@@ -294,7 +290,7 @@ async function doTelegramSetup(): Promise<void> {
   if (!token || !token.trim()) return;
 
   statusBar.setStatus('connecting');
-  updateStatus('正在验证 Telegram Bot Token...');
+  updateStatus(t('telegramVerifying'));
 
   try {
     const api = new TelegramApi(token.trim(), telegramApiBaseUrl);
@@ -303,9 +299,9 @@ async function doTelegramSetup(): Promise<void> {
 
     const cwd = getWorkspaceCwd();
     if (!cwd) {
-      updateStatus('⚠️ 请先打开一个项目文件夹');
+      updateStatus(t('openFolderFirstStatus'));
       statusBar.setStatus('error');
-      vscode.window.showWarningMessage('请先在 VSCode 中打开一个项目文件夹');
+      vscode.window.showWarningMessage(t('openFolderFirst'));
       return;
     }
 
@@ -326,7 +322,7 @@ async function doTelegramSetup(): Promise<void> {
       try {
         const oldChannel = createWeChatChannel(currentAccount);
         const oldSender = oldChannel.getSender();
-        await oldSender.sendText(currentAccount.userId, '', '⚠️ 检测到新的 Telegram 账号已绑定，当前连接已断开。');
+        await oldSender.sendText(currentAccount.userId, '', t('telegramReplaced'));
       } catch {
         // best effort
       }
@@ -334,7 +330,7 @@ async function doTelegramSetup(): Promise<void> {
 
     const lock = acquireInstanceLock(account.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage('⚠️ 另一个 VSCode 窗口已连接此 Telegram 账号，无法同时连接。');
+      vscode.window.showWarningMessage(t('anotherWindowConnectedTelegram'));
       setUiState({ ...DISCONNECTED_STATE, channelName: 'Telegram', showRebind: true });
       statusBar.setStatus('disconnected');
       return;
@@ -342,19 +338,19 @@ async function doTelegramSetup(): Promise<void> {
     currentLock = lock;
 
     startDaemon(account, cwd);
-    vscode.window.showInformationMessage(`Telegram Bot @${bot.username} 连接成功！`);
+    vscode.window.showInformationMessage(t('telegramConnected', bot.username ?? bot.id));
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('Telegram setup failed', { error: msg });
 
     if (msg.includes('401') || msg.includes('Unauthorized')) {
-      setUiState({ ...DISCONNECTED_STATE, status: '❌ Token 无效或已过期', dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, status: t('telegramTokenInvalid'), dotClass: 'error', channelName: 'Telegram', showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage('Telegram Token 无效，请检查后重试。');
+      vscode.window.showErrorMessage(t('telegramTokenInvalidMsg'));
     } else {
-      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, status: t('telegramBindFailed', msg), dotClass: 'error', channelName: 'Telegram', showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage('Telegram 绑定失败: ' + msg);
+      vscode.window.showErrorMessage(t('telegramBindFailedMsg', msg));
     }
   }
 }
@@ -367,7 +363,7 @@ async function doQrBind(): Promise<void> {
   qrBindAbort = abort;
 
   statusBar.setStatus('connecting');
-  updateStatus('正在生成二维码，请稍候...');
+  updateStatus(t('qrGenerating'));
 
   try {
     const { qrcodeUrl, qrcodeId } = await startQrLogin();
@@ -390,7 +386,7 @@ async function doQrBind(): Promise<void> {
         await oldSender.sendText(
           currentAccount.userId,
           '',
-          '⚠️ 检测到新的微信账号已绑定，当前连接已断开。',
+          t('wechatReplaced'),
         );
         logger.info('Notified old account of disconnect', {
           oldAccountId: currentAccount.accountId,
@@ -406,7 +402,7 @@ async function doQrBind(): Promise<void> {
     hideQrCode();
     const cwd = getWorkspaceCwd();
     if (!cwd) {
-      updateStatus('⚠️ 请先打开一个项目文件夹');
+      updateStatus(t('openFolderFirstStatus'));
       statusBar.setStatus('error');
       return;
     }
@@ -417,30 +413,30 @@ async function doQrBind(): Promise<void> {
 
     const lock = acquireInstanceLock(account.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage(`⚠️ 另一个 VSCode 窗口已连接此账号，无法同时连接。`);
-      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
+      vscode.window.showWarningMessage(t('anotherWindowConnectedWechat'));
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
       return;
     }
     currentLock = lock;
 
     startDaemon(account, cwd);
-    vscode.window.showInformationMessage('微信绑定成功！');
+    vscode.window.showInformationMessage(t('wechatBound'));
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('QR bind failed', { error: msg });
 
     if (msg.includes('expired')) {
-      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
-      vscode.window.showWarningMessage('二维码已过期，请重试。');
+      vscode.window.showWarningMessage(t('qrExpired'));
     } else if (msg.includes('cancelled')) {
-      setUiState({ ...DISCONNECTED_STATE, channelName: '微信', showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
     } else {
-      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error', channelName: '微信', showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, status: t('wechatBindFailed', msg), dotClass: 'error', channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage('微信绑定失败: ' + msg);
+      vscode.window.showErrorMessage(t('wechatBindFailed', msg));
     }
   }
 }
@@ -496,9 +492,9 @@ function startDaemon(account: AccountData, cwd: string): void {
     onSessionExpired: () => {
       const name = channel.displayName;
       logger.warn('Session expired');
-      setUiState({ ...DISCONNECTED_STATE, status: `⚠️ ${name}会话已过期，请重新绑定`, dotClass: 'error', channelName: name, showRebind: true });
+      setUiState({ ...DISCONNECTED_STATE, status: t('sessionExpiredStatus', name), dotClass: 'error', channelName: name, showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showWarningMessage(`${name}会话已过期，请重新扫码绑定。`);
+      vscode.window.showWarningMessage(t('sessionExpiredMsg', name));
     },
   };
 
@@ -555,7 +551,7 @@ async function handleMessage(
     // Concurrency guard
     if (session.state === 'processing') {
       if (!userText.startsWith('/status') && !userText.startsWith('/help')) {
-        await sender.sendText(fromUserId, contextToken, '⏳ 正在处理上一条消息，请稍后...');
+        await sender.sendText(fromUserId, contextToken, t('busyProcessing'));
         return;
       }
     }
@@ -569,46 +565,36 @@ async function handleMessage(
 
       switch (cmd) {
         case 'help':
-          await sender.sendText(fromUserId, contextToken, HELP_TEXT);
+          await sender.sendText(fromUserId, contextToken, getHelpText());
           return;
         case 'new': {
           const newSession = sessionStore.clear(account.accountId, session);
           Object.assign(session, newSession);
-          await sender.sendText(fromUserId, contextToken, '✅ 已开启新会话。');
+          await sender.sendText(fromUserId, contextToken, t('newSessionOk'));
           return;
         }
         case 'cwd':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, '当前工作目录: ' + (session.workingDirectory || cwd) + '\n用法: /cwd <路径>');
+            await sender.sendText(fromUserId, contextToken, t('cwdCurrent', session.workingDirectory || cwd));
           } else {
             session.workingDirectory = args;
             currentCwd = args;
             sessionStore.save(account.accountId, session);
-            await sender.sendText(fromUserId, contextToken, '✅ 工作目录已切换为: ' + args);
+            await sender.sendText(fromUserId, contextToken, t('cwdChanged', args));
           }
           return;
         case 'model':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, '用法: /model <模型名称>\n例: /model claude-sonnet-4-6');
+            await sender.sendText(fromUserId, contextToken, t('modelUsage'));
           } else {
             session.model = args;
             sessionStore.save(account.accountId, session);
-            await sender.sendText(fromUserId, contextToken, '✅ 模型已切换为: ' + args);
+            await sender.sendText(fromUserId, contextToken, t('modelChanged', args));
           }
           return;
         case 'mode':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, [
-              '当前权限模式: ' + (session.permissionMode || 'default'),
-              '',
-              '可用模式（名称或数字快捷键）:',
-              '  0 / plan              仅规划不执行',
-              '  1 / default            默认（逐次确认）',
-              '  2 / acceptEdits        自动接受文件编辑',
-              '  3 / bypassPermissions  跳过所有权限检查',
-              '',
-              '用法: /mode <模式名或数字>',
-            ].join('\n'));
+            await sender.sendText(fromUserId, contextToken, t('modeCurrent', session.permissionMode || 'default'));
           } else {
             const numMap: Record<string, string> = {
               '0': 'plan', '1': 'default', '2': 'acceptEdits', '3': 'bypassPermissions',
@@ -617,36 +603,36 @@ async function handleMessage(
             const resolved = numMap[args.trim()] || args.trim();
             const validModes = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
             if (!validModes.includes(resolved)) {
-              await sender.sendText(fromUserId, contextToken, '❌ 无效模式: ' + args + '\n可用: 0(plan), 1(default), 2(acceptEdits), 3(bypassPermissions)');
+              await sender.sendText(fromUserId, contextToken, t('modeInvalid', args));
             } else {
               session.permissionMode = resolved as Session['permissionMode'];
               sessionStore.save(account.accountId, session);
-              await sender.sendText(fromUserId, contextToken, '✅ 权限模式已切换为: ' + resolved);
+              await sender.sendText(fromUserId, contextToken, t('modeChanged', resolved));
             }
           }
           return;
         case 'status': {
           const mode = session.permissionMode ?? 'default';
-          const modeDesc: Record<string, string> = { 'default': '默认（逐次确认）', 'acceptEdits': '自动接受编辑', 'plan': '仅规划' };
+          const modeDesc: Record<string, string> = { 'default': t('modeDescDefault'), 'acceptEdits': t('modeDescAcceptEdits'), 'plan': t('modeDescPlan') };
           await sender.sendText(fromUserId, contextToken, [
-            '📊 会话状态', '',
-            '工作目录: ' + (session.workingDirectory || cwd),
-            '模型: ' + (session.model || '默认'),
-            '权限模式: ' + mode + '（' + (modeDesc[mode] || mode) + '）',
-            '会话状态: ' + session.state,
-            '连续会话: ' + (session.continuedSession ? '是' : '否'),
+            t('statusTitle'), '',
+            t('statusCwd', session.workingDirectory || cwd),
+            t('statusModel', session.model || t('statusDefaultModel')),
+            t('statusMode', mode, modeDesc[mode] || mode),
+            t('statusState', session.state),
+            t('statusContinued', session.continuedSession ? t('statusYes') : t('statusNo')),
           ].join('\n'));
           return;
         }
         default:
-          await sender.sendText(fromUserId, contextToken, '❓ 未知命令: /' + cmd + '\n输入 /help 查看可用命令');
+          await sender.sendText(fromUserId, contextToken, t('unknownCommand', cmd));
           return;
       }
     }
 
     // Normal message -> Claude
     if (!userText && !imageUrl) {
-      await sender.sendText(fromUserId, contextToken, '暂不支持此类型消息，请发送文字或图片');
+      await sender.sendText(fromUserId, contextToken, t('unsupportedMessageType'));
       return;
     }
 
@@ -670,7 +656,7 @@ async function handleMessage(
 
     try {
       const queryOptions: QueryOptions = {
-        prompt: userText || '请分析这张图片',
+        prompt: userText || t('analyzeImage'),
         cwd: session.workingDirectory || cwd || process.cwd(),
         resume: session.continuedSession ? session.sdkSessionId : undefined,
         model: session.model,
@@ -711,7 +697,7 @@ async function handleMessage(
       }
 
       if (result.error) {
-        let errorMessage = '⚠️ Claude 处理请求时出错:\n' + result.error;
+        let errorMessage = t('claudeError', result.error);
         if (result.text) {
           const finalText = plainText(result.text);
           errorMessage += '\n' + finalText;
@@ -722,7 +708,7 @@ async function handleMessage(
         let finalText = plainText(result.text);
         const MAX_MESSAGE_LENGTH = 1500;
         if (finalText.length > MAX_MESSAGE_LENGTH) {
-          finalText = `**由于${channelName()}消息限制，以下是部分内容，完整内容请到VSCode查看**\n\n${finalText.slice(0, MAX_MESSAGE_LENGTH)}`;
+          finalText = `${t('messageTruncated', channelName())}\n\n${finalText.slice(0, MAX_MESSAGE_LENGTH)}`;
         }
         await sender.sendText(fromUserId, contextToken, finalText);
 
@@ -730,21 +716,11 @@ async function handleMessage(
           const deniedTools = result.permissionDenials.map(d => d.tool_name).filter(Boolean);
           const uniqueTools = [...new Set(deniedTools)];
           const currentMode = session.permissionMode ?? 'default';
-          const tip = [
-            '⚠️ 部分操作因权限限制未执行',
-            '',
-            '被拒绝的工具: ' + uniqueTools.join(', '),
-            '',
-            '当前权限模式: ' + currentMode,
-            '',
-            '如需自动授权，请发送:',
-            '  /mode 2  (自动接受文件编辑)',
-            '  /mode 3  (跳过所有权限检查)',
-          ].join('\n');
+          const tip = t('permissionDenied', uniqueTools.join(', '), currentMode);
           await sender.sendText(fromUserId, contextToken, tip);
         }
       } else {
-        await sender.sendText(fromUserId, contextToken, 'ℹ️ Claude 无返回内容');
+        await sender.sendText(fromUserId, contextToken, t('claudeEmpty'));
       }
 
       session.state = 'idle';
@@ -754,7 +730,7 @@ async function handleMessage(
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error('Error in handleMessage', { error: errorMsg });
-      await sender.sendText(fromUserId, contextToken, '⚠️ 处理消息时出错，请稍后重试。');
+      await sender.sendText(fromUserId, contextToken, t('messageError'));
       session.state = 'idle';
       sessionStore.save(account.accountId, session);
       statusBar.setStatus('connected');
