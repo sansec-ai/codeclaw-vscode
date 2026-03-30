@@ -1,6 +1,7 @@
 import type { AccountData } from './accounts';
 import { DEFAULT_BASE_URL, saveAccount } from './accounts';
 import { logger } from '../logger';
+import { t } from '../i18n';
 
 const QR_CODE_URL = `${DEFAULT_BASE_URL}/ilink/bot/get_bot_qrcode?bot_type=3`;
 const QR_STATUS_URL = `${DEFAULT_BASE_URL}/ilink/bot/get_qrcode_status`;
@@ -124,10 +125,10 @@ export async function waitForQrScan(
           status.includes('reject') ||
           status.includes('cancel')
         )) {
-          throw new Error(`二维码扫描失败: ${data.retmsg || status}`);
+          throw new Error(t('qrScanFailed', data.retmsg || status));
         }
         if (data.retmsg) {
-          throw new Error(`二维码扫描失败: ${data.retmsg}`);
+          throw new Error(t('qrScanFailed', data.retmsg));
         }
         break;
     }

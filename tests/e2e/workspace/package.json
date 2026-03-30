@@ -1,0 +1,6 @@
+{
+  "name": "e2e-test-workspace",
+  "version": "1.0.0",
+  "description": "CodeClaw E2E test workspace",
+  "private": true
+}

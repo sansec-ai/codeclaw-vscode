@@ -5,23 +5,28 @@ import { StatusBarManager } from './statusbar';
 import { WeChatApi } from './wechat/api';
 import { loadLatestAccount, saveAccount, type AccountData } from './wechat/accounts';
 import { startQrLogin, waitForQrScan } from './wechat/login';
-import { createMonitor, type MonitorCallbacks } from './wechat/monitor';
 import { createSender } from './wechat/send';
 import { extractText, extractFirstImageUrl } from './wechat/media';
+import { MessageType, type WeixinMessage } from './wechat/types';
 import { createSessionStore, type Session } from './session';
 import { claudeQuery, type QueryOptions, plainText } from './claude/provider';
 import { ChecklistTracker } from './claude/checklist-tracker';
-import { MessageType, type WeixinMessage } from './wechat/types';
 import { reportPrompt } from './stats';
 import { acquireInstanceLock, releaseInstanceLock } from './store';
 import type { LockHandle } from './store';
+import { createWeChatChannel } from './channels/wechat-adapter';
+import { createTelegramChannel } from './channels/telegram-adapter';
+import { TelegramApi } from './channels/telegram-api';
+import type { Channel, ChannelMessage, ChannelCallbacks, ChannelSender } from './channels/types';
+import { downloadImage } from './wechat/media';
 import QRCode from 'qrcode';
+import { t, initLocale } from './i18n';
 
 // ========== Global State ==========
 let panelInstance: WeChatPanel | undefined;
 let sidebarProvider: WeChatSidebarProvider;
 let statusBar: StatusBarManager;
-let monitorInstance: ReturnType<typeof createMonitor> | undefined;
+let activeChannel: Channel | undefined;
 let outputChannel: vscode.OutputChannel;
 let extContext: vscode.ExtensionContext;
 
@@ -34,10 +39,9 @@ let currentLock: LockHandle | null = null;
 
 // ========== Helpers ==========
 
-
-
-function extractTextFromItems(items: NonNullable<WeixinMessage['item_list']>): string {
-  return items.map((item) => extractText(item)).filter(Boolean).join('\n');
+/** Get user-facing channel name, fallback to t('channelWechat') for backward compat */
+function channelName(): string {
+  return activeChannel?.displayName ?? t('channelWechat');
 }
 
 function getWorkspaceCwd(): string | undefined {
@@ -45,17 +49,9 @@ function getWorkspaceCwd(): string | undefined {
   return folders && folders.length > 0 ? folders[0].uri.fsPath : undefined;
 }
 
-const HELP_TEXT = [
-  '可用命令：',
-  '',
-  '  /help             显示帮助',
-  '  /new              开启新会话',
-  '  /model <名称>     切换 Claude 模型',
-  '  /mode <模式>      切换权限模式 (default/acceptEdits/plan)',
-  '  /status           查看当前会话状态',
-  '',
-  '直接输入文字即可与 Claude Code 对话（连续会话）',
-].join('\n');
+function getHelpText(): string {
+  return t('helpText');
+}
 
 // ========== Activate / Deactivate ==========
 
@@ -64,6 +60,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
   outputChannel = vscode.window.createOutputChannel('Code Claw');
   ctx.subscriptions.push(outputChannel);
   initLogger(outputChannel);
+
+  // Initialize locale from VSCode environment language
+  initLocale(vscode.env.language);
 
   statusBar = new StatusBarManager();
   ctx.subscriptions.push(statusBar);
@@ -84,7 +83,7 @@ export async function activate(ctx: vscode.ExtensionContext) {
     vscode.commands.registerCommand('codeClaw.showPanel', () => showOrCreatePanel()),
   );
 
-  logger.info('WeChat VSCode extension activated');
+  logger.info('Code Claw VSCode extension activated');
 
   // Auto-reconnect if account already bound AND workspace matches
   const account = loadLatestAccount();
@@ -95,18 +94,17 @@ export async function activate(ctx: vscode.ExtensionContext) {
       statusBar.setStatus('disconnected');
       setUiState({
         ...DISCONNECTED_STATE,
-        status: '请打开项目文件夹后重新连接',
-        connectLabel: '🔄 重新连接',
+        status: t('noWorkspaceReconnect'),
+        connectLabel: t('reconnectBtn'),
       });
     } else {
-      // Workspace matches (or no boundCwd recorded) — auto-connect
       const lock = acquireInstanceLock(account.accountId);
       if (!lock) {
         logger.warn('Another VSCode instance is already connected', { accountId: account.accountId });
         statusBar.setStatus('disconnected');
         setUiState({
           ...DISCONNECTED_STATE,
-          status: '⚠️ 另一个 VSCode 窗口已连接此账号',
+          status: t('anotherWindowConnectedStatus'),
           dotClass: 'error',
           showConnect: false,
           showDisconnect: true,
@@ -114,7 +112,6 @@ export async function activate(ctx: vscode.ExtensionContext) {
         });
       } else {
         currentLock = lock;
-        // Update boundCwd to current workspace if it changed
         if (account.boundCwd !== cwd) {
           account.boundCwd = cwd;
           saveAccount(account);
@@ -128,9 +125,9 @@ export async function activate(ctx: vscode.ExtensionContext) {
 }
 
 export function deactivate() {
-  if (monitorInstance) {
-    monitorInstance.stop();
-    monitorInstance = undefined;
+  if (activeChannel) {
+    activeChannel.stop();
+    activeChannel = undefined;
   }
   if (currentLock) {
     releaseInstanceLock(currentLock);
@@ -173,7 +170,7 @@ function showOrCreatePanel(): void {
     return;
   }
   const state = currentAccount
-    ? connectedState(currentCwd || '无工作目录')
+    ? connectedState(currentCwd || t('noWorkspaceDir'), channelName())
     : DISCONNECTED_STATE;
   panelInstance = WeChatPanel.createOrShow(extContext.extensionUri, state);
   panelInstance.onDidDispose(() => { panelInstance = undefined; });
@@ -182,81 +179,183 @@ function showOrCreatePanel(): void {
 
 // ========== Connect / Disconnect / Rebind ==========
 
-/**
- * Connect: if already bound, start daemon directly; otherwise show QR.
- */
 async function handleConnect(): Promise<void> {
   const existingAccount = loadLatestAccount();
   if (existingAccount) {
     const cwd = getWorkspaceCwd();
     if (!cwd) {
-      vscode.window.showWarningMessage('请先在 VSCode 中打开一个项目文件夹');
+      vscode.window.showWarningMessage(t('openFolderFirst'));
       return;
     }
-    if (currentAccount && monitorInstance) {
-      vscode.window.showInformationMessage('微信已连接，无需重复连接。');
+    if (currentAccount && activeChannel) {
+      vscode.window.showInformationMessage(t('alreadyConnected', channelName()));
       return;
     }
-    // Try to acquire instance lock
     const lock = acquireInstanceLock(existingAccount.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage('⚠️ 另一个 VSCode 窗口已连接此微信账号，请先断开该窗口。');
+      vscode.window.showWarningMessage(t('anotherWindowConnected'));
       return;
     }
     currentLock = lock;
-    // Update boundCwd to current workspace if it changed
     if (existingAccount.boundCwd !== cwd) {
       existingAccount.boundCwd = cwd;
       saveAccount(existingAccount);
       logger.info('Updated boundCwd', { accountId: existingAccount.accountId, newCwd: cwd });
     }
     startDaemon(existingAccount, cwd);
-    vscode.window.showInformationMessage('微信已连接！');
     return;
   }
 
-  // Not bound — show QR code
-  await doQrBind();
+  // Not bound — show channel picker
+  await showChannelPicker();
 }
 
-/** Disconnect: stop daemon but keep account data for quick reconnect. */
 function handleDisconnect(): void {
-  // Cancel any pending QR bind flow
   if (qrBindAbort) {
     qrBindAbort.abort();
     qrBindAbort = null;
   }
 
+  const chName = channelName();
   stopDaemon();
-  // Release instance lock
   if (currentLock) {
     releaseInstanceLock(currentLock);
     currentLock = null;
   }
   setUiState({
     ...DISCONNECTED_STATE,
-    status: '已断开连接',
-    connectLabel: '🔄 重新连接',
+    status: t('disconnectedStatus'),
+    connectLabel: t('reconnectBtn'),
+    channelName: chName,
+    showRebind: !!loadLatestAccount(),
   });
   statusBar.setStatus('disconnected');
-  vscode.window.showInformationMessage('微信已断开连接。点击"重新连接"可快速恢复。');
+  vscode.window.showInformationMessage(t('disconnectedMsg', chName));
   logger.info('Disconnected by user, account preserved');
 }
 
-/** Disconnect and rebind with new QR code. */
 async function handleRebind(): Promise<void> {
-  // Cancel any pending QR bind flow
   if (qrBindAbort) {
     qrBindAbort.abort();
     qrBindAbort = null;
   }
+  const chName = channelName();
   stopDaemon();
-  setUiState(DISCONNECTED_STATE);
-  await doQrBind();
+  if (currentLock) {
+    releaseInstanceLock(currentLock);
+    currentLock = null;
+  }
+  setUiState({
+    ...DISCONNECTED_STATE,
+    channelName: chName,
+    showRebind: true,
+  });
+  await showChannelPicker();
+}
+
+/**
+ * WeChat-specific QR bind flow.
+ * Future channels (Telegram, etc.) will have their own setup flows.
+ */
+async function showChannelPicker(): Promise<void> {
+  const pick = await vscode.window.showQuickPick([
+    { label: t('channelWechatLabel'), description: t('channelWechatDesc'), value: 'wechat' },
+    { label: t('channelTelegramLabel'), description: t('channelTelegramDesc'), value: 'telegram' },
+  ], { placeHolder: t('chooseChannel') });
+
+  if (!pick) return;
+
+  if (pick.value === 'telegram') {
+    await doTelegramSetup();
+  } else {
+    await doQrBind();
+  }
+}
+
+/**
+ * Telegram setup: prompt for bot token, verify, save account, start daemon.
+ */
+async function doTelegramSetup(): Promise<void> {
+  const config = vscode.workspace.getConfiguration('codeClaw');
+  const telegramApiBaseUrl = config.get<string>('telegramApiBaseUrl', 'https://api.telegram.org');
+  const telegramPollTimeout = config.get<number>('telegramPollTimeout', 30);
+
+  const token = await vscode.window.showInputBox({
+    prompt: t('telegramTokenPrompt'),
+    placeHolder: t('telegramTokenPlaceholder'),
+    password: true,
+    ignoreFocusOut: true,
+  });
+
+  if (!token || !token.trim()) return;
+
+  statusBar.setStatus('connecting');
+  updateStatus(t('telegramVerifying'));
+
+  try {
+    const api = new TelegramApi(token.trim(), telegramApiBaseUrl);
+    const bot = await api.getMe();
+    logger.info('Telegram bot verified', { botUsername: bot.username, botId: bot.id });
+
+    const cwd = getWorkspaceCwd();
+    if (!cwd) {
+      updateStatus(t('openFolderFirstStatus'));
+      statusBar.setStatus('error');
+      vscode.window.showWarningMessage(t('openFolderFirst'));
+      return;
+    }
+
+    const account: AccountData = {
+      botToken: token.trim(),
+      accountId: String(bot.id),
+      baseUrl: telegramApiBaseUrl,
+      userId: bot.username ?? String(bot.id),
+      createdAt: new Date().toISOString(),
+      channelType: 'telegram',
+      boundCwd: cwd,
+      telegramPollTimeout: telegramPollTimeout,
+    };
+    saveAccount(account);
+
+    // Notify old channel if switching
+    if (currentAccount && currentAccount.accountId !== account.accountId && currentAccount.channelType !== 'telegram') {
+      try {
+        const oldChannel = createWeChatChannel(currentAccount);
+        const oldSender = oldChannel.getSender();
+        await oldSender.sendText(currentAccount.userId, '', t('telegramReplaced'));
+      } catch {
+        // best effort
+      }
+    }
+
+    const lock = acquireInstanceLock(account.accountId);
+    if (!lock) {
+      vscode.window.showWarningMessage(t('anotherWindowConnectedTelegram'));
+      setUiState({ ...DISCONNECTED_STATE, channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('disconnected');
+      return;
+    }
+    currentLock = lock;
+
+    startDaemon(account, cwd);
+    vscode.window.showInformationMessage(t('telegramConnected', bot.username ?? bot.id));
+  } catch (err: any) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logger.error('Telegram setup failed', { error: msg });
+
+    if (msg.includes('401') || msg.includes('Unauthorized')) {
+      setUiState({ ...DISCONNECTED_STATE, status: t('telegramTokenInvalid'), dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('error');
+      vscode.window.showErrorMessage(t('telegramTokenInvalidMsg'));
+    } else {
+      setUiState({ ...DISCONNECTED_STATE, status: t('telegramBindFailed', msg), dotClass: 'error', channelName: 'Telegram', showRebind: true });
+      statusBar.setStatus('error');
+      vscode.window.showErrorMessage(t('telegramBindFailedMsg', msg));
+    }
+  }
 }
 
 async function doQrBind(): Promise<void> {
-  // Cancel any previous QR bind
   if (qrBindAbort) {
     qrBindAbort.abort();
   }
@@ -264,7 +363,7 @@ async function doQrBind(): Promise<void> {
   qrBindAbort = abort;
 
   statusBar.setStatus('connecting');
-  updateStatus('正在生成二维码，请稍候...');
+  updateStatus(t('qrGenerating'));
 
   try {
     const { qrcodeUrl, qrcodeId } = await startQrLogin();
@@ -279,24 +378,21 @@ async function doQrBind(): Promise<void> {
     const account = await waitForQrScan(qrcodeId, abort.signal);
     if (abort.signal.aborted) { qrBindAbort = null; return; }
 
-    // Notify old WeChat user that connection is being replaced (if applicable)
+    // Notify old user that connection is being replaced
     if (currentAccount && currentAccount.accountId !== account.accountId) {
       try {
-        const oldApi = new WeChatApi(currentAccount.botToken, currentAccount.baseUrl);
-        const oldSender = createSender(oldApi, currentAccount.accountId);
-        // Use the last known context token if available
-        const oldSharedCtx = { lastContextToken: '' };
+        const oldChannel = createWeChatChannel(currentAccount);
+        const oldSender = oldChannel.getSender();
         await oldSender.sendText(
           currentAccount.userId,
-          oldSharedCtx.lastContextToken,
-          '⚠️ 检测到新的微信账号已绑定，当前连接已断开。',
+          '',
+          t('wechatReplaced'),
         );
         logger.info('Notified old account of disconnect', {
           oldAccountId: currentAccount.accountId,
           newAccountId: account.accountId,
         });
       } catch (notifyErr) {
-        // Best effort — don't block the new connection
         logger.warn('Failed to notify old account', {
           error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
         });
@@ -306,67 +402,72 @@ async function doQrBind(): Promise<void> {
     hideQrCode();
     const cwd = getWorkspaceCwd();
     if (!cwd) {
-      updateStatus('⚠️ 请先打开一个项目文件夹');
+      updateStatus(t('openFolderFirstStatus'));
       statusBar.setStatus('error');
       return;
     }
 
-    // Save account with bound cwd for project-level exclusivity
     account.boundCwd = cwd;
+    account.channelType = 'wechat';
     saveAccount(account);
 
-    // Acquire instance lock before starting daemon
     const lock = acquireInstanceLock(account.accountId);
     if (!lock) {
-      vscode.window.showWarningMessage('⚠️ 另一个 VSCode 窗口已连接此微信账号，无法同时连接。');
-      setUiState(DISCONNECTED_STATE);
+      vscode.window.showWarningMessage(t('anotherWindowConnectedWechat'));
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
       return;
     }
     currentLock = lock;
 
     startDaemon(account, cwd);
-    vscode.window.showInformationMessage('微信绑定成功！');
+    vscode.window.showInformationMessage(t('wechatBound'));
   } catch (err: any) {
     const msg = err instanceof Error ? err.message : String(err);
     logger.error('QR bind failed', { error: msg });
 
     if (msg.includes('expired')) {
-      setUiState(DISCONNECTED_STATE);
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
-      vscode.window.showWarningMessage('二维码已过期，请重试。');
+      vscode.window.showWarningMessage(t('qrExpired'));
     } else if (msg.includes('cancelled')) {
-      setUiState(DISCONNECTED_STATE);
+      setUiState({ ...DISCONNECTED_STATE, channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('disconnected');
     } else {
-      setUiState({ ...DISCONNECTED_STATE, status: '❌ 绑定失败: ' + msg, dotClass: 'error' });
+      setUiState({ ...DISCONNECTED_STATE, status: t('wechatBindFailed', msg), dotClass: 'error', channelName: t('channelWechat'), showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showErrorMessage('微信绑定失败: ' + msg);
+      vscode.window.showErrorMessage(t('wechatBindFailed', msg));
     }
   }
 }
 
 function stopDaemon(): void {
-  if (monitorInstance) {
-    monitorInstance.stop();
-    monitorInstance = undefined;
+  if (activeChannel) {
+    activeChannel.stop();
+    activeChannel = undefined;
   }
   currentAccount = undefined;
   currentCwd = undefined;
   currentSession = undefined;
   currentSessionStore = undefined;
-  // Note: do NOT clear qrBindAbort here — let handleDisconnect/handleRebind manage it
 }
 
 // ========== Daemon ==========
 
 function startDaemon(account: AccountData, cwd: string): void {
-  if (monitorInstance) {
-    monitorInstance.stop();
-    monitorInstance = undefined;
-  }
+  stopDaemon();
 
-  const api = new WeChatApi(account.botToken, account.baseUrl);
+  // Create channel based on account type
+  let channel: Channel;
+  if (account.channelType === 'telegram') {
+    const config = vscode.workspace.getConfiguration('codeClaw');
+    const baseUrl = account.baseUrl || config.get<string>('telegramApiBaseUrl', 'https://api.telegram.org');
+    const pollTimeout = account.telegramPollTimeout || config.get<number>('telegramPollTimeout', 30);
+    channel = createTelegramChannel(account.botToken, { baseUrl, pollTimeout });
+    channel = { ...channel, accountId: account.accountId, userId: account.userId };
+  } else {
+    channel = createWeChatChannel(account);
+  }
   const sessionStore = createSessionStore();
   const session: Session = sessionStore.load(account.accountId);
 
@@ -381,64 +482,55 @@ function startDaemon(account: AccountData, cwd: string): void {
   currentSession = session;
   currentSessionStore = sessionStore;
 
-  const sender = createSender(api, account.accountId);
+  const sender = channel.getSender();
   const sharedCtx = { lastContextToken: '' };
 
-  const callbacks: MonitorCallbacks = {
-    onMessage: async (msg: WeixinMessage) => {
+  const callbacks: ChannelCallbacks = {
+    onMessage: async (msg: ChannelMessage) => {
       await handleMessage(msg, sender, sharedCtx);
     },
     onSessionExpired: () => {
+      const name = channel.displayName;
       logger.warn('Session expired');
-      setUiState({ ...DISCONNECTED_STATE, status: '⚠️ 微信会话已过期，请重新绑定', dotClass: 'error' });
+      setUiState({ ...DISCONNECTED_STATE, status: t('sessionExpiredStatus', name), dotClass: 'error', channelName: name, showRebind: true });
       statusBar.setStatus('error');
-      vscode.window.showWarningMessage('微信会话已过期，请重新扫码绑定。');
+      vscode.window.showWarningMessage(t('sessionExpiredMsg', name));
     },
   };
 
-  monitorInstance = createMonitor(api, callbacks);
+  activeChannel = channel;
+  statusBar.setChannelName(channelName());
   statusBar.setStatus('connected');
-  setUiState(connectedState(cwd));
-  // Reset processing lock so the new daemon can process messages
+  setUiState(connectedState(cwd, channelName()));
   _processingLock = Promise.resolve();
-  logger.info('Daemon started', { accountId: account.accountId, cwd });
+  logger.info('Daemon started', { channel: channel.channelType, accountId: channel.accountId, cwd });
 
-  monitorInstance.run().catch((err) => {
-    logger.error('Monitor crashed', { error: err instanceof Error ? err.message : String(err) });
-    setUiState({ ...DISCONNECTED_STATE, status: '❌ 连接断开', dotClass: 'error' });
-    statusBar.setStatus('error');
-  });
+  channel.start(callbacks);
 }
 
 // ========== Message Handler ==========
 
-// Module-level processing lock: prevents concurrent handleMessage execution
-// even if multiple monitor instances are running simultaneously
 let _processingLock: Promise<void> = Promise.resolve();
 
 async function handleMessage(
-  msg: WeixinMessage,
-  sender: ReturnType<typeof createSender>,
+  msg: ChannelMessage,
+  sender: ChannelSender,
   sharedCtx: { lastContextToken: string },
 ): Promise<void> {
   if (!currentAccount || !currentSession || !currentSessionStore) { return; }
-
-  if (msg.message_type !== MessageType.USER) { return; }
-  if (!msg.from_user_id || !msg.item_list) { return; }
 
   const account = currentAccount;
   const session = currentSession;
   const sessionStore = currentSessionStore;
   const cwd = currentCwd || session.workingDirectory;
 
-  const contextToken = msg.context_token ?? '';
-  const fromUserId = msg.from_user_id;
+  const fromUserId = msg.fromUserId;
+  const contextToken = msg.contextToken;
+  const userText = msg.text;
+  const imageUrl = msg.imageUrl;
   sharedCtx.lastContextToken = contextToken;
 
-  const userText = extractTextFromItems(msg.item_list);
-  const imageItem = extractFirstImageUrl(msg.item_list);
-
-  // Acquire processing lock — only one message processed at a time across all monitors
+  // Acquire processing lock
   let releaseLock: (() => void) | undefined;
   try {
     const prevLock = _processingLock;
@@ -446,23 +538,20 @@ async function handleMessage(
     const currentLock = new Promise<void>(resolve => { resolver = resolve; });
     _processingLock = currentLock;
     releaseLock = resolver;
-
-    // Wait for previous processing to finish
     await prevLock;
   } catch {
     return;
   }
 
   try {
-    // Double-check session is still valid after waiting for lock
     if (!currentAccount || currentAccount.accountId !== account.accountId || currentSession !== session) {
       return;
     }
 
-    // Concurrency guard via session state
+    // Concurrency guard
     if (session.state === 'processing') {
       if (!userText.startsWith('/status') && !userText.startsWith('/help')) {
-        await sender.sendText(fromUserId, contextToken, '⏳ 正在处理上一条消息，请稍后...');
+        await sender.sendText(fromUserId, contextToken, t('busyProcessing'));
         return;
       }
     }
@@ -476,46 +565,36 @@ async function handleMessage(
 
       switch (cmd) {
         case 'help':
-          await sender.sendText(fromUserId, contextToken, HELP_TEXT);
+          await sender.sendText(fromUserId, contextToken, getHelpText());
           return;
         case 'new': {
           const newSession = sessionStore.clear(account.accountId, session);
           Object.assign(session, newSession);
-          await sender.sendText(fromUserId, contextToken, '✅ 已开启新会话。');
+          await sender.sendText(fromUserId, contextToken, t('newSessionOk'));
           return;
         }
         case 'cwd':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, '当前工作目录: ' + (session.workingDirectory || cwd) + '\n用法: /cwd <路径>');
+            await sender.sendText(fromUserId, contextToken, t('cwdCurrent', session.workingDirectory || cwd));
           } else {
             session.workingDirectory = args;
             currentCwd = args;
             sessionStore.save(account.accountId, session);
-            await sender.sendText(fromUserId, contextToken, '✅ 工作目录已切换为: ' + args);
+            await sender.sendText(fromUserId, contextToken, t('cwdChanged', args));
           }
           return;
         case 'model':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, '用法: /model <模型名称>\n例: /model claude-sonnet-4-6');
+            await sender.sendText(fromUserId, contextToken, t('modelUsage'));
           } else {
             session.model = args;
             sessionStore.save(account.accountId, session);
-            await sender.sendText(fromUserId, contextToken, '✅ 模型已切换为: ' + args);
+            await sender.sendText(fromUserId, contextToken, t('modelChanged', args));
           }
           return;
         case 'mode':
           if (!args) {
-            await sender.sendText(fromUserId, contextToken, [
-              '当前权限模式: ' + (session.permissionMode || 'default'),
-              '',
-              '可用模式（名称或数字快捷键）:',
-              '  0 / plan              仅规划不执行',
-              '  1 / default            默认（逐次确认）',
-              '  2 / acceptEdits        自动接受文件编辑',
-              '  3 / bypassPermissions  跳过所有权限检查',
-              '',
-              '用法: /mode <模式名或数字>',
-            ].join('\n'));
+            await sender.sendText(fromUserId, contextToken, t('modeCurrent', session.permissionMode || 'default'));
           } else {
             const numMap: Record<string, string> = {
               '0': 'plan', '1': 'default', '2': 'acceptEdits', '3': 'bypassPermissions',
@@ -524,47 +603,45 @@ async function handleMessage(
             const resolved = numMap[args.trim()] || args.trim();
             const validModes = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
             if (!validModes.includes(resolved)) {
-              await sender.sendText(fromUserId, contextToken, '❌ 无效模式: ' + args + '\n可用: 0(plan), 1(default), 2(acceptEdits), 3(bypassPermissions)');
+              await sender.sendText(fromUserId, contextToken, t('modeInvalid', args));
             } else {
               session.permissionMode = resolved as Session['permissionMode'];
               sessionStore.save(account.accountId, session);
-              await sender.sendText(fromUserId, contextToken, '✅ 权限模式已切换为: ' + resolved);
+              await sender.sendText(fromUserId, contextToken, t('modeChanged', resolved));
             }
           }
           return;
         case 'status': {
           const mode = session.permissionMode ?? 'default';
-          const modeDesc: Record<string, string> = { 'default': '默认（逐次确认）', 'acceptEdits': '自动接受编辑', 'plan': '仅规划' };
+          const modeDesc: Record<string, string> = { 'default': t('modeDescDefault'), 'acceptEdits': t('modeDescAcceptEdits'), 'plan': t('modeDescPlan') };
           await sender.sendText(fromUserId, contextToken, [
-            '📊 会话状态', '',
-            '工作目录: ' + (session.workingDirectory || cwd),
-            '模型: ' + (session.model || '默认'),
-            '权限模式: ' + mode + '（' + (modeDesc[mode] || mode) + '）',
-            '会话状态: ' + session.state,
-            '连续会话: ' + (session.continuedSession ? '是' : '否'),
+            t('statusTitle'), '',
+            t('statusCwd', session.workingDirectory || cwd),
+            t('statusModel', session.model || t('statusDefaultModel')),
+            t('statusMode', mode, modeDesc[mode] || mode),
+            t('statusState', session.state),
+            t('statusContinued', session.continuedSession ? t('statusYes') : t('statusNo')),
           ].join('\n'));
           return;
         }
         default:
-          await sender.sendText(fromUserId, contextToken, '❓ 未知命令: /' + cmd + '\n输入 /help 查看可用命令');
+          await sender.sendText(fromUserId, contextToken, t('unknownCommand', cmd));
           return;
       }
     }
 
     // Normal message -> Claude
-    if (!userText && !imageItem) {
-      await sender.sendText(fromUserId, contextToken, '暂不支持此类型消息，请发送文字或图片');
+    if (!userText && !imageUrl) {
+      await sender.sendText(fromUserId, contextToken, t('unsupportedMessageType'));
       return;
     }
 
-    logger.info('User message', { text: userText, hasImage: !!imageItem, messageId: msg.message_id });
+    logger.info('User message', { text: userText, hasImage: !!imageUrl, messageId: msg.id });
 
-    // Stats reporting (fire-and-forget, no-op in default build)
     if (userText) {
       reportPrompt(userText);
     }
 
-    // Read streaming config
     const streaming = vscode.workspace
       .getConfiguration('codeClaw')
       .get<boolean>('streaming', true);
@@ -572,15 +649,14 @@ async function handleMessage(
     session.state = 'processing';
     sessionStore.save(account.accountId, session);
     statusBar.setStatus('processing');
-    setUiState(processingState());
+    setUiState(processingState(channelName()));
 
-    // Checklist tracker: monitors TodoWrite tool calls and sends progress to WeChat
-    const checklistTracker = new ChecklistTracker(8); // max 8 updates (reserve 2 for safety margin)
+    const checklistTracker = new ChecklistTracker(8);
     let checklistUpdateCount = 0;
 
     try {
       const queryOptions: QueryOptions = {
-        prompt: userText || '请分析这张图片',
+        prompt: userText || t('analyzeImage'),
         cwd: session.workingDirectory || cwd || process.cwd(),
         resume: session.continuedSession ? session.sdkSessionId : undefined,
         model: session.model,
@@ -588,15 +664,13 @@ async function handleMessage(
         streaming,
         onIntermediate: streaming
           ? async (msg) => {
-              // Log all intermediate messages
               if (msg.displayText) {
                 logger.info('Stream intermediate', {
                   type: msg.type,
-                  preview: msg.displayText.substring(0, 200),
+                  preview: msg.displayText.substring(0, 50),
                 });
               }
 
-              // Check for checklist updates from assistant messages
               if (msg.type === 'assistant' && msg.rawMessage) {
                 const update = checklistTracker.checkUpdate(msg.rawMessage);
                 if (update && checklistUpdateCount < 9) {
@@ -623,61 +697,46 @@ async function handleMessage(
       }
 
       if (result.error) {
-        let errorMessage = '⚠️ Claude 处理请求时出错:\n' + result.error;        
-        // 如果错误的同时也有文本内容，则附加显示
+        let errorMessage = t('claudeError', result.error);
         if (result.text) {
           const finalText = plainText(result.text);
           errorMessage += '\n' + finalText;
         }
         logger.error('Claude query error', { error: errorMessage });
-        
         await sender.sendText(fromUserId, contextToken, errorMessage);
       } else if (result.text) {
-        // Send the full result as a single message, no splitting
         let finalText = plainText(result.text);
-        const MAX_WECHAT_LENGTH = 1500;
-        if (finalText.length > MAX_WECHAT_LENGTH) {
-          finalText = `⚠️ 由于微信消息限制，以下是部分内容，完整内容请到VSCode查看。 \n\n${finalText.slice(0, MAX_WECHAT_LENGTH)}`;
+        const MAX_MESSAGE_LENGTH = 1500;
+        if (finalText.length > MAX_MESSAGE_LENGTH) {
+          finalText = `${t('messageTruncated', channelName())}\n\n${finalText.slice(finalText.length - MAX_MESSAGE_LENGTH)}`;
         }
         await sender.sendText(fromUserId, contextToken, finalText);
 
-        // If there were permission denials, append a warning
         if (result.permissionDenials && result.permissionDenials.length > 0) {
           const deniedTools = result.permissionDenials.map(d => d.tool_name).filter(Boolean);
           const uniqueTools = [...new Set(deniedTools)];
           const currentMode = session.permissionMode ?? 'default';
-          const tip = [
-            '⚠️ 部分操作因权限限制未执行',
-            '',
-            '被拒绝的工具: ' + uniqueTools.join(', '),
-            '',
-            '当前权限模式: ' + currentMode,
-            '',
-            '如需自动授权，请发送:',
-            '  /mode 2  (自动接受文件编辑)',
-            '  /mode 3  (跳过所有权限检查)',
-          ].join('\n');
+          const tip = t('permissionDenied', uniqueTools.join(', '), currentMode);
           await sender.sendText(fromUserId, contextToken, tip);
         }
       } else {
-        await sender.sendText(fromUserId, contextToken, 'ℹ️ Claude 无返回内容');
+        await sender.sendText(fromUserId, contextToken, t('claudeEmpty'));
       }
 
       session.state = 'idle';
       sessionStore.save(account.accountId, session);
       statusBar.setStatus('connected');
-      setUiState(connectedState(currentCwd || cwd));
+      setUiState(connectedState(currentCwd || cwd, channelName()));
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
       logger.error('Error in handleMessage', { error: errorMsg });
-      await sender.sendText(fromUserId, contextToken, '⚠️ 处理消息时出错，请稍后重试。');
+      await sender.sendText(fromUserId, contextToken, t('messageError'));
       session.state = 'idle';
       sessionStore.save(account.accountId, session);
       statusBar.setStatus('connected');
-      setUiState(connectedState(currentCwd || cwd));
+      setUiState(connectedState(currentCwd || cwd, channelName()));
     }
   } finally {
-    // Always release the lock
     releaseLock?.();
   }
 }

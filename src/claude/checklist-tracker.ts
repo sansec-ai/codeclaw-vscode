@@ -1,4 +1,5 @@
 import { logger } from '../logger';
+import { t } from '../i18n';
 
 export interface TodoItem {
   content: string;
@@ -126,7 +127,7 @@ export class ChecklistTracker {
     const bar = this.buildProgressBar(progress);
 
     const lines: string[] = [
-      `📋 任务进度 ${progress}%`,
+      `📋 ${t('checklistProgress', String(progress))}`,
       bar,
       '',
     ];

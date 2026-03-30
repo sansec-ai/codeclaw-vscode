@@ -1,4 +1,5 @@
 import { logger } from './logger';
+import { t } from './i18n';
 import type { PendingPermission } from './session';
 
 const PERMISSION_TIMEOUT = 120_000;
@@ -58,13 +59,13 @@ export function createPermissionBroker(onTimeout?: OnPermissionTimeout) {
 
   function formatPendingMessage(perm: PendingPermission): string {
     return [
-      '🔧 权限请求',
+      t('permissionRequestTitle'),
       '',
-      `工具: ${perm.toolName}`,
-      `输入: ${perm.toolInput.slice(0, 500)}`,
+      t('permissionToolLabel', perm.toolName),
+      t('permissionInputLabel', perm.toolInput.slice(0, 500)),
       '',
-      '回复 y 允许，n 拒绝',
-      '(120秒未回复自动拒绝)',
+      t('permissionReplyHint'),
+      t('permissionTimeoutHint'),
     ].join('\n');
   }
 

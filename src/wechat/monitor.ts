@@ -48,7 +48,13 @@ export function createMonitor(api: WeChatApi, callbacks: MonitorCallbacks) {
         }
 
         if (resp.ret !== undefined && resp.ret !== 0) {
-          logger.warn('getUpdates returned error', { ret: resp.ret, retmsg: resp.retmsg });
+          consecutiveFailures++;
+          logger.warn('getUpdates returned error', { ret: resp.ret, retmsg: resp.retmsg, consecutiveFailures });
+          // Clear stale sync-buf to force a fresh poll next time
+          saveSyncBuf('');
+          const backoff = consecutiveFailures >= BACKOFF_THRESHOLD ? BACKOFF_LONG_MS : BACKOFF_SHORT_MS;
+          await sleep(backoff, controller.signal);
+          continue;
         }
 
         if (resp.get_updates_buf) {
@@ -139,10 +145,13 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
 
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener('abort', () => {
-      clearTimeout(timer);
-      resolve();
-    }, { once: true });
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) { settled = true; signal?.removeEventListener('abort', onAbort); resolve(); }
+    }, ms);
+    const onAbort = () => {
+      if (!settled) { settled = true; clearTimeout(timer); resolve(); }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
