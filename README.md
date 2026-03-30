@@ -6,7 +6,7 @@
 
 > Control Claude Code in your VSCode workspace from WeChat or Telegram
 
-![Demo](codeClaw.gif)
+![Demo](./codeClaw.gif)
 
 ## Overview
 
@@ -138,7 +138,7 @@ MIT
 
 **English | [中文](#english)**
 
-![演示](codeClaw.gif)
+![演示](./codeClaw.gif)
 
 ## 概述
 
