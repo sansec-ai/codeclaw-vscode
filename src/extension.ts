@@ -708,7 +708,7 @@ async function handleMessage(
         let finalText = plainText(result.text);
         const MAX_MESSAGE_LENGTH = 1500;
         if (finalText.length > MAX_MESSAGE_LENGTH) {
-          finalText = `${t('messageTruncated', channelName())}\n\n${finalText.slice(0, MAX_MESSAGE_LENGTH)}`;
+          finalText = `${t('messageTruncated', channelName())}\n\n${finalText.slice(finalText.length - MAX_MESSAGE_LENGTH)}`;
         }
         await sender.sendText(fromUserId, contextToken, finalText);
 

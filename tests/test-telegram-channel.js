@@ -360,7 +360,7 @@ describe('Telegram Channel Integration (Mock Server)', () => {
           const MAX_LENGTH = 1500;
           let finalText = longResponse;
           if (finalText.length > MAX_LENGTH) {
-            finalText = `**由于Telegram消息限制，以下是部分内容，完整内容请到VSCode查看**\n\n${finalText.slice(0, MAX_LENGTH)}`;
+            finalText = `**由于Telegram消息限制，以下是部分内容，完整内容请到VSCode查看**\n\n${finalText.slice(finalText.length - MAX_LENGTH)}`;
           }
           await sender.sendText(msg.fromUserId, msg.contextToken, finalText);
         },
