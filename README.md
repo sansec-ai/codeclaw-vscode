@@ -6,6 +6,8 @@
 
 > Control Claude Code in your VSCode workspace from WeChat or Telegram
 
+![Demo](https://github.com/sansec-ai/codeclaw-vscode/raw/master/codeClaw.gif)
+
 ## Overview
 
 A VSCode extension that turns your WeChat or Telegram into a remote control terminal for Claude Code. Send a message from your phone, and Claude Code in VSCode writes code for you.
@@ -135,6 +137,8 @@ MIT
 > 通过微信或 Telegram 远程控制 VSCode 项目中的 Claude Code
 
 **English | [中文](#english)**
+
+![演示](https://github.com/sansec-ai/codeclaw-vscode/raw/master/codeClaw.gif)
 
 ## 概述
 
