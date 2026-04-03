@@ -471,6 +471,13 @@ function startDaemon(account: AccountData, cwd: string): void {
   const sessionStore = createSessionStore();
   const session: Session = sessionStore.load(account.accountId);
 
+  // Recover from stale in-progress state after extension/VSCode restart.
+  if (session.state === 'processing' || session.state === 'waiting_permission') {
+    session.state = 'idle';
+    sessionStore.save(account.accountId, session);
+    logger.info('Recovered stale session state on daemon start', { accountId: account.accountId });
+  }
+
   const effectiveCwd = cwd || process.cwd();
   if (session.workingDirectory !== effectiveCwd) {
     session.workingDirectory = effectiveCwd;

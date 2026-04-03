@@ -79,6 +79,14 @@ function readEnvVarArray(config: vscode.WorkspaceConfiguration, key: string): En
 function buildSubprocessEnv(): Record<string, string | undefined> {
   const env: Record<string, string> = { ...process.env as Record<string, string> };
 
+  // Compatibility: support both ANTHROPIC_AUTH_TOKEN and ANTHROPIC_API_KEY
+  if (!env.ANTHROPIC_API_KEY && env.ANTHROPIC_AUTH_TOKEN) {
+    env.ANTHROPIC_API_KEY = env.ANTHROPIC_AUTH_TOKEN;
+  }
+  if (!env.ANTHROPIC_AUTH_TOKEN && env.ANTHROPIC_API_KEY) {
+    env.ANTHROPIC_AUTH_TOKEN = env.ANTHROPIC_API_KEY;
+  }
+
   // Use null scope to ensure settings are read correctly in SSH remote mode
   const config = (section: string) => vscode.workspace.getConfiguration(section, null);
 
@@ -323,6 +331,8 @@ export async function claudeQuery(options: QueryOptions): Promise<QueryResult> {
     ? singleUserMessage(prompt, images)
     : prompt;
 
+  const recentStderr: string[] = [];
+
   const sdkOptions: Options = {
     cwd,
     permissionMode: permissionMode as Options['permissionMode'],
@@ -330,7 +340,12 @@ export async function claudeQuery(options: QueryOptions): Promise<QueryResult> {
     env: buildSubprocessEnv(),
     includePartialMessages: streaming,
     stderr: (data: string) => {
-      logger.debug('Claude Code stderr', { data: data.slice(0, 500) });
+      const line = data.slice(0, 500);
+      recentStderr.push(line);
+      if (recentStderr.length > 20) {
+        recentStderr.shift();
+      }
+      logger.debug('Claude Code stderr', { data: line });
     },
   };
 
@@ -370,113 +385,146 @@ export async function claudeQuery(options: QueryOptions): Promise<QueryResult> {
   let lastAssistantMsg: SDKAssistantMessage | undefined;
   const permissionDenials: Array<{ tool_name: string; tool_use_id: string }> = [];
 
-  try {
-    const result = query({ prompt: promptParam, options: sdkOptions });
+  const handleMessage = async (message: SDKMessage) => {
+    const sid = getSessionId(message);
+    if (sid) sessionId = sid;
 
-    for await (const message of result) {
-      const sid = getSessionId(message);
-      if (sid) sessionId = sid;
+    switch (message.type) {
+      case 'assistant': {
+        lastAssistantMsg = message as SDKAssistantMessage;
+        const text = extractText(lastAssistantMsg);
+        if (text) textParts.push(text);
 
-      switch (message.type) {
-        case 'assistant': {
-          lastAssistantMsg = message as SDKAssistantMessage;
-          const text = extractText(lastAssistantMsg);
-          if (text) textParts.push(text);
-
-          // Stream intermediate messages to WeChat
-          if (streaming && onIntermediate) {
-            const blocks = extractBlocks(lastAssistantMsg);
-            if (blocks.length > 0) {
-              const displayText = formatBlocksForWeChat(blocks);
-              if (displayText) {
-                try {
-                  await onIntermediate({ type: 'assistant', displayText, blocks, rawMessage: lastAssistantMsg });
-                } catch (cbErr) {
-                  // Don't let callback failure break the query loop
-                  logger.error('onIntermediate callback failed', {
-                    error: cbErr instanceof Error ? cbErr.message : String(cbErr),
-                  });
-                }
+        // Stream intermediate messages to WeChat
+        if (streaming && onIntermediate) {
+          const blocks = extractBlocks(lastAssistantMsg);
+          if (blocks.length > 0) {
+            const displayText = formatBlocksForWeChat(blocks);
+            if (displayText) {
+              try {
+                await onIntermediate({ type: 'assistant', displayText, blocks, rawMessage: lastAssistantMsg });
+              } catch (cbErr) {
+                // Don't let callback failure break the query loop
+                logger.error('onIntermediate callback failed', {
+                  error: cbErr instanceof Error ? cbErr.message : String(cbErr),
+                });
               }
             }
           }
-          break;
         }
-        case 'tool_progress': {
-          // SDKToolProgressMessage
-          if (streaming && onIntermediate) {
-            const tp = message as any;
-            try {
-              await onIntermediate({
-                type: 'tool_progress',
-                displayText: `⏳ ${tp.tool_name} (${tp.elapsed_time_seconds?.toFixed(1) ?? '?'}s)`,
-              });
-            } catch (cbErr) {
-              logger.error('onIntermediate callback failed (tool_progress)', {
-                error: cbErr instanceof Error ? cbErr.message : String(cbErr),
-              });
-            }
-          }
-          break;
-        }
-        case 'result': {
-          const rm = message as SDKResultMessage;
-          // Capture permission denials regardless of success/error
-          if ('permission_denials' in rm && rm.permission_denials.length > 0) {
-            for (const pd of rm.permission_denials) {
-              permissionDenials.push({
-                tool_name: pd.tool_name,
-                tool_use_id: pd.tool_use_id,
-              });
-            }
-            logger.warn('Permission denials detected', {
-              count: rm.permission_denials.length,
-              tools: rm.permission_denials.map(d => d.tool_name),
+        break;
+      }
+      case 'tool_progress': {
+        // SDKToolProgressMessage
+        if (streaming && onIntermediate) {
+          const tp = message as any;
+          try {
+            await onIntermediate({
+              type: 'tool_progress',
+              displayText: `⏳ ${tp.tool_name} (${tp.elapsed_time_seconds?.toFixed(1) ?? '?'}s)`,
+            });
+          } catch (cbErr) {
+            logger.error('onIntermediate callback failed (tool_progress)', {
+              error: cbErr instanceof Error ? cbErr.message : String(cbErr),
             });
           }
-          if (rm.subtype === 'success' && 'result' in rm) {
-            if (rm.result) {
-              // The result text is often identical to the last assistant text.
-              // Use trimmed comparison for robust deduplication (whitespace may differ).
-              const trimmedResult = rm.result.trim();
-              let deduped = false;
-              if (trimmedResult && textParts.length > 0) {
-                const lastPart = textParts[textParts.length - 1].trim();
-                if (lastPart === trimmedResult
-                  || lastPart.endsWith(trimmedResult)
-                  || trimmedResult.endsWith(lastPart)
-                  || trimmedResult.includes(lastPart)) {
-                  // Result duplicates the last assistant text — replace with canonical result
-                  textParts[textParts.length - 1] = rm.result;
-                  deduped = true;
-                  logger.debug('Deduped result vs last assistant text', {
-                    resultLen: trimmedResult.length,
-                    lastPartLen: lastPart.length,
-                  });
-                }
-              }
-              if (!deduped) {
-                textParts.push(rm.result);
+        }
+        break;
+      }
+      case 'result': {
+        const rm = message as SDKResultMessage;
+        // Capture permission denials regardless of success/error
+        if ('permission_denials' in rm && rm.permission_denials.length > 0) {
+          for (const pd of rm.permission_denials) {
+            permissionDenials.push({
+              tool_name: pd.tool_name,
+              tool_use_id: pd.tool_use_id,
+            });
+          }
+          logger.warn('Permission denials detected', {
+            count: rm.permission_denials.length,
+            tools: rm.permission_denials.map(d => d.tool_name),
+          });
+        }
+        if (rm.subtype === 'success' && 'result' in rm) {
+          if (rm.result) {
+            // The result text is often identical to the last assistant text.
+            // Use trimmed comparison for robust deduplication (whitespace may differ).
+            const trimmedResult = rm.result.trim();
+            let deduped = false;
+            if (trimmedResult && textParts.length > 0) {
+              const lastPart = textParts[textParts.length - 1].trim();
+              if (lastPart === trimmedResult
+                || lastPart.endsWith(trimmedResult)
+                || trimmedResult.endsWith(lastPart)
+                || trimmedResult.includes(lastPart)) {
+                // Result duplicates the last assistant text — replace with canonical result
+                textParts[textParts.length - 1] = rm.result;
+                deduped = true;
+                logger.debug('Deduped result vs last assistant text', {
+                  resultLen: trimmedResult.length,
+                  lastPartLen: lastPart.length,
+                });
               }
             }
-          } else if ('errors' in rm && rm.errors.length > 0) {
-            errorMessage = rm.errors.join('; ');
-            logger.error('SDK returned error result', { errors: rm.errors });
+            if (!deduped) {
+              textParts.push(rm.result);
+            }
           }
-          break;
+        } else if ('errors' in rm && rm.errors.length > 0) {
+          errorMessage = rm.errors.join('; ');
+          logger.error('SDK returned error result', { errors: rm.errors });
         }
-        case 'system':
-          logger.debug('SDK system message', {
-            subtype: (message as { subtype?: string }).subtype,
-          });
-          break;
-        default:
-          break;
+        break;
       }
+      case 'system':
+        logger.debug('SDK system message', {
+          subtype: (message as { subtype?: string }).subtype,
+        });
+        break;
+      default:
+        break;
     }
+  };
+
+  const runQueryOnce = async (opts: Options): Promise<void> => {
+    const result = query({ prompt: promptParam, options: opts });
+    for await (const message of result) {
+      await handleMessage(message);
+    }
+  };
+
+  try {
+    await runQueryOnce(sdkOptions);
   } catch (err: unknown) {
-    errorMessage = err instanceof Error ? err.message : String(err);
-    logger.error('Claude query threw', { error: errorMessage });
+    const firstError = err instanceof Error ? err.message : String(err);
+    const shouldRetryWithoutResume = !!resume && firstError.includes('exited with code 1');
+
+    if (shouldRetryWithoutResume) {
+      logger.warn('Claude query failed with resume, retrying without resume', {
+        error: firstError,
+      });
+      try {
+        const retryOptions: Options = { ...sdkOptions };
+        delete (retryOptions as any).resume;
+        await runQueryOnce(retryOptions);
+        errorMessage = undefined;
+      } catch (retryErr: unknown) {
+        errorMessage = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        const stderrTail = recentStderr.slice(-8).join('\n').trim();
+        if (stderrTail) {
+          errorMessage = `${errorMessage}\n\nStderr:\n${stderrTail}`;
+        }
+        logger.error('Claude query retry without resume failed', { error: errorMessage });
+      }
+    } else {
+      errorMessage = firstError;
+      const stderrTail = recentStderr.slice(-8).join('\n').trim();
+      if (stderrTail) {
+        errorMessage = `${errorMessage}\n\nStderr:\n${stderrTail}`;
+      }
+      logger.error('Claude query threw', { error: errorMessage });
+    }
   }
 
   const fullText = textParts.join('\n').trim();
